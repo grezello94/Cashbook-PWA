@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
+import { BrandLogo } from "@/components/common/BrandLogo";
 import { NeonCard } from "@/components/common/NeonCard";
 import { countries, detectCountryPreference, findCountryByCode, normalizePhone } from "@/data/countries";
 import type { SignUpInput } from "@/hooks/useAuthSession";
@@ -110,8 +111,9 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
   };
 
   return (
-    <div className="center-layout">
-      <NeonCard title="Cashbook PWA" subtitle="Standard secure authentication" className="max-w-xl">
+    <div className="center-layout auth-page">
+      <NeonCard className="max-w-xl auth-card">
+        <BrandLogo className="auth-logo auth-logo-hero" />
         <div className="segment-row">
           <button
             type="button"
@@ -129,13 +131,16 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
           </button>
         </div>
 
-        <div className="stack" style={{ marginTop: 12 }}>
+        <div className="stack auth-stack" style={{ marginTop: 12 }}>
           <button className="google-btn" type="button" onClick={continueWithGoogle} disabled={busy}>
             Continue with Google
           </button>
+          <div className="auth-divider" aria-hidden="true">
+            <span>or use email</span>
+          </div>
 
           {mode === "signin" && (
-            <form className="stack" onSubmit={submitSignIn}>
+            <form className="stack auth-form" onSubmit={submitSignIn}>
               <label htmlFor="signin-email">Email</label>
               <input
                 id="signin-email"
@@ -163,7 +168,7 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
           )}
 
           {mode === "signup" && (
-            <form className="stack" onSubmit={submitSignUp}>
+            <form className="stack auth-form" onSubmit={submitSignUp}>
               <label htmlFor="signup-name">Full Name</label>
               <input
                 id="signup-name"

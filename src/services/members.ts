@@ -63,7 +63,8 @@ export async function updateWorkspaceMemberRole(
   workspaceId: string,
   userId: string,
   role: AppRole,
-  allowDeleteForEditor: boolean
+  allowDeleteForEditor: boolean,
+  allowManageCategoriesForEditor = false
 ): Promise<void> {
   const sb = requireSupabase();
   const payload =
@@ -78,7 +79,7 @@ export async function updateWorkspaceMemberRole(
       : {
           role: "editor" as const,
           can_delete_entries: allowDeleteForEditor,
-          can_manage_categories: false,
+          can_manage_categories: allowManageCategoriesForEditor,
           can_manage_users: false,
           dashboard_scope: "shift" as const
         };

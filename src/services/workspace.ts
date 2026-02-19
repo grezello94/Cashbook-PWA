@@ -101,3 +101,12 @@ export async function getWorkspaceContext(workspaceId: string, userId: string): 
     }
   };
 }
+
+export async function updateWorkspaceTimezone(workspaceId: string, timezone: string): Promise<void> {
+  const sb = requireSupabase();
+  const { error } = await sb.from("workspaces").update({ timezone }).eq("id", workspaceId);
+
+  if (error) {
+    throw error;
+  }
+}

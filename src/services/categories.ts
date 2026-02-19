@@ -87,3 +87,78 @@ export async function addAICategories(
     throw error;
   }
 }
+
+export async function addManualCategory(
+  workspaceId: string,
+  userId: string,
+  name: string,
+  type: "income" | "expense"
+): Promise<void> {
+  const normalized = name.trim();
+  if (!normalized) {
+    throw new Error("Category name is required.");
+  }
+  const normalizedKey = normalized.toLowerCase();
+
+  const sb = requireSupabase();
+  const { data: existing, error: existingError } = await sb
+    .from("categories")
+    .select("id,name")
+    .eq("workspace_id", workspaceId)
+    .eq("type", type)
+    .eq("name_key", normalizedKey)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (existingError) {
+    throw existingError;
+  }
+
+  if (existing) {
+    throw new Error(`Duplicate category: "${normalized}" already exists.`);
+  }
+
+  const { error } = await sb
+    .from("categories")
+    .insert({
+      workspace_id: workspaceId,
+      name: normalized,
+      type,
+      icon: null,
+      color: null,
+      source: "manual",
+      is_active: true,
+      created_by: userId
+    });
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function archiveCategory(workspaceId: string, categoryId: string): Promise<void> {
+  const sb = requireSupabase();
+  const { count, error: countError } = await sb
+    .from("entries")
+    .select("id", { count: "exact", head: true })
+    .eq("workspace_id", workspaceId)
+    .eq("category_id", categoryId);
+
+  if (countError) {
+    throw countError;
+  }
+
+  if ((count ?? 0) > 0) {
+    throw new Error("Cannot drop this category because it is already used in entries.");
+  }
+
+  const { error } = await sb
+    .from("categories")
+    .update({ is_active: false })
+    .eq("workspace_id", workspaceId)
+    .eq("id", categoryId);
+
+  if (error) {
+    throw error;
+  }
+}

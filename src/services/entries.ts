@@ -17,6 +17,21 @@ export async function listEntries(workspaceId: string, limit = 80): Promise<Entr
   return ((data ?? []) as Entry[]).filter((item) => item.status === "active");
 }
 
+export async function countActiveEntries(workspaceId: string): Promise<number> {
+  const sb = requireSupabase();
+  const { count, error } = await sb
+    .from("entries")
+    .select("id", { head: true, count: "exact" })
+    .eq("workspace_id", workspaceId)
+    .eq("status", "active");
+
+  if (error) {
+    throw error;
+  }
+
+  return count ?? 0;
+}
+
 export async function addEntry(input: EntryInsertInput): Promise<Entry> {
   const sb = requireSupabase();
   const { data, error } = await sb
@@ -43,6 +58,18 @@ export async function addEntry(input: EntryInsertInput): Promise<Entry> {
 
 export async function deleteEntryDirect(workspaceId: string, entryId: string, userId: string): Promise<void> {
   const sb = requireSupabase();
+  const { data: canDelete, error: canDeleteError } = await sb.rpc("can_delete_entries", {
+    _workspace_id: workspaceId
+  });
+
+  if (canDeleteError) {
+    throw canDeleteError;
+  }
+
+  if (!canDelete) {
+    throw new Error("You do not have permission to delete entries directly.");
+  }
+
   const { error } = await sb
     .from("entries")
     .update({

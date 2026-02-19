@@ -4,25 +4,121 @@ import type { AppRole, WorkspaceMember, WorkspaceMemberDirectory } from "@/types
 
 interface TeamPageProps {
   member: WorkspaceMember;
+  workspaceTimezone: string;
   members: WorkspaceMemberDirectory[];
   currentUserId: string;
-  onGrantAccess: (contact: string, role: AppRole, allowDeleteForEditor: boolean) => Promise<void>;
-  onUpdateMember: (targetUserId: string, role: AppRole, allowDeleteForEditor: boolean) => Promise<void>;
+  currentUserProfile: {
+    fullName: string;
+    email: string;
+    phone: string;
+  };
+  onGrantAccess: (
+    contact: string,
+    role: AppRole,
+    allowDeleteForEditor: boolean,
+    allowManageCategoriesForEditor: boolean
+  ) => Promise<void>;
+  onUpdateMember: (
+    targetUserId: string,
+    role: AppRole,
+    allowDeleteForEditor: boolean,
+    allowManageCategoriesForEditor: boolean
+  ) => Promise<void>;
   onRevokeMember: (targetUserId: string) => Promise<void>;
+  onUpdateTimezone: (timezone: string) => Promise<void>;
 }
 
 export function TeamPage(props: TeamPageProps): JSX.Element {
-  const { member, members, currentUserId, onGrantAccess, onUpdateMember, onRevokeMember } = props;
+  const {
+    member,
+    workspaceTimezone,
+    members,
+    currentUserId,
+    currentUserProfile,
+    onGrantAccess,
+    onUpdateMember,
+    onRevokeMember,
+    onUpdateTimezone
+  } = props;
 
   const [contactType, setContactType] = useState<"email" | "phone">("email");
   const [contact, setContact] = useState("");
   const [role, setRole] = useState<AppRole>("editor");
   const [allowDeleteForEditor, setAllowDeleteForEditor] = useState(false);
+  const [allowManageCategoriesForEditor, setAllowManageCategoriesForEditor] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingUserId, setEditingUserId] = useState("");
   const [error, setError] = useState("");
+  const [timezoneValue, setTimezoneValue] = useState(workspaceTimezone);
+  const [timezoneSaving, setTimezoneSaving] = useState(false);
+  const [timezoneEditOpen, setTimezoneEditOpen] = useState(false);
+
+  const readMessage = (err: unknown, fallback: string): string => {
+    if (err instanceof Error && err.message) {
+      return err.message;
+    }
+    if (typeof err === "object" && err && "message" in err && typeof err.message === "string") {
+      return err.message;
+    }
+    return fallback;
+  };
+
+  const grantErrorMessage = (err: unknown, requestedContact: string): string => {
+    const message = readMessage(err, "Could not grant access.");
+    if (message.toLowerCase().includes("not registered")) {
+      return `${requestedContact} is not registered yet. Ask them to sign up first, then grant access.`;
+    }
+    return message;
+  };
 
   const canManageUsers = member.role === "admin" || member.can_manage_users;
+  const canEditTimezone = member.role === "admin";
+  const displayName = currentUserProfile.fullName || currentUserProfile.email || "User";
+  const initials = displayName
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+
+  const timezoneOptions = useMemo(() => {
+    const list = (() => {
+      const intlWithSupported = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
+      if (typeof Intl !== "undefined" && typeof intlWithSupported.supportedValuesOf === "function") {
+        try {
+          return intlWithSupported.supportedValuesOf("timeZone");
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    })();
+
+    if (list.length) {
+      return list;
+    }
+    return ["Asia/Kolkata", "UTC", "Asia/Dubai", "Europe/London", "America/New_York", "Asia/Singapore"];
+  }, []);
+
+  const timezoneWithOffset = useMemo(() => {
+    const readOffset = (zone: string): string => {
+      try {
+        const parts = new Intl.DateTimeFormat("en-US", {
+          timeZone: zone,
+          timeZoneName: "shortOffset"
+        }).formatToParts(new Date());
+        const value = parts.find((part) => part.type === "timeZoneName")?.value ?? "";
+        return value || "GMT";
+      } catch {
+        return "GMT";
+      }
+    };
+
+    return timezoneOptions.map((zone) => ({
+      zone,
+      label: `${zone} (${readOffset(zone)})`
+    }));
+  }, [timezoneOptions]);
 
   const sortedMembers = useMemo(() => {
     return [...members].sort((a, b) => {
@@ -42,28 +138,44 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
       setError("Enter an email or phone number.");
       return;
     }
+    const normalizedValue = value.toLowerCase();
+    const alreadyMember = members.some(
+      (item) =>
+        (item.email && item.email.toLowerCase() === normalizedValue) ||
+        (item.phone && item.phone.replace(/\s+/g, "") === value.replace(/\s+/g, ""))
+    );
+    if (alreadyMember) {
+      setError(`${value} already has workspace access. Use Team Members to change permissions.`);
+      return;
+    }
 
     setSaving(true);
     setError("");
     try {
-      await onGrantAccess(value, role, allowDeleteForEditor);
+      await onGrantAccess(value, role, allowDeleteForEditor, allowManageCategoriesForEditor);
       setContact("");
       setRole("editor");
       setAllowDeleteForEditor(false);
+      setAllowManageCategoriesForEditor(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not grant access.");
+      setError(grantErrorMessage(err, value));
     } finally {
       setSaving(false);
     }
   };
 
-  const updateRole = async (targetUserId: string, nextRole: AppRole, allowDelete: boolean) => {
+  const updateRole = async (
+    targetUserId: string,
+    nextRole: AppRole,
+    allowDelete: boolean,
+    allowManageCategories: boolean
+  ) => {
     setEditingUserId(targetUserId);
     setError("");
     try {
-      await onUpdateMember(targetUserId, nextRole, allowDelete);
+      await onUpdateMember(targetUserId, nextRole, allowDelete, allowManageCategories);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update member.");
+      setError(readMessage(err, "Could not update member."));
     } finally {
       setEditingUserId("");
     }
@@ -75,42 +187,89 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
     try {
       await onRevokeMember(targetUserId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not revoke access.");
+      setError(readMessage(err, "Could not revoke access."));
     } finally {
       setEditingUserId("");
     }
   };
 
+  const saveTimezone = async (): Promise<void> => {
+    const nextTimezone = timezoneValue.trim();
+    if (!nextTimezone) {
+      setError("Timezone is required.");
+      return;
+    }
+    setTimezoneSaving(true);
+    setError("");
+    try {
+      await onUpdateTimezone(nextTimezone);
+      setTimezoneEditOpen(false);
+    } catch (err) {
+      setError(readMessage(err, "Could not update timezone."));
+    } finally {
+      setTimezoneSaving(false);
+    }
+  };
+
   return (
     <section className="stack-lg">
-      <NeonCard title="RBAC Matrix" subtitle="Owner/Admin and Editor policy map">
-        <div className="matrix">
-          <div className="matrix-row matrix-head">
-            <span>Feature</span>
-            <span>Admin</span>
-            <span>Editor</span>
-          </div>
-          <div className="matrix-row">
-            <span>Add/Edit Entries</span>
-            <span>Yes</span>
-            <span>Yes</span>
-          </div>
-          <div className="matrix-row">
-            <span>Delete Entries</span>
-            <span>Yes</span>
-            <span>No (unless permitted)</span>
-          </div>
-          <div className="matrix-row">
-            <span>Manage Categories</span>
-            <span>Add/Edit/Remove</span>
-            <span>View only</span>
-          </div>
-          <div className="matrix-row">
-            <span>User Management</span>
-            <span>Grant/Revoke</span>
-            <span>No Access</span>
+      <NeonCard title="My Profile" subtitle="Your signed-in account details">
+        <div className="profile-card">
+          <div className="profile-avatar">{initials || "U"}</div>
+          <div className="profile-meta">
+            <strong>{displayName}</strong>
+            <small>{currentUserProfile.email || "No email"}</small>
+            <small>{currentUserProfile.phone || "No phone added"}</small>
+            <small>Role: {member.role}</small>
+            <div className="profile-timezone-row">
+              <small>Timezone: {workspaceTimezone}</small>
+              {canEditTimezone && (
+                <button
+                  className="text-btn profile-edit-btn"
+                  type="button"
+                  onClick={() => {
+                    setTimezoneValue(workspaceTimezone);
+                    setTimezoneEditOpen((prev) => !prev);
+                  }}
+                >
+                  {timezoneEditOpen ? "Close" : "Edit"}
+                </button>
+              )}
+            </div>
           </div>
         </div>
+        {canEditTimezone && timezoneEditOpen && (
+          <div className="stack profile-timezone">
+            <label htmlFor="workspace-timezone">Workspace timezone</label>
+            <select
+              id="workspace-timezone"
+              value={timezoneValue}
+              onChange={(event) => setTimezoneValue(event.target.value)}
+            >
+              {timezoneWithOffset.map((item) => (
+                <option key={item.zone} value={item.zone}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+            <div className="inline-actions">
+              <button className="secondary-btn" type="button" onClick={saveTimezone} disabled={timezoneSaving}>
+                {timezoneSaving ? "Saving..." : "Save"}
+              </button>
+              <button
+                className="ghost-btn"
+                type="button"
+                onClick={() => {
+                  setTimezoneValue(workspaceTimezone);
+                  setTimezoneEditOpen(false);
+                }}
+                disabled={timezoneSaving}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </NeonCard>
 
       <NeonCard title="Your Access" subtitle={`Role: ${member.role}`}>
@@ -129,20 +288,16 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
         >
           <form className="stack" onSubmit={grant}>
             <div className="segment-row">
-              <button
-                type="button"
-                className={`segment-btn ${contactType === "email" ? "segment-btn-active" : ""}`.trim()}
-                onClick={() => setContactType("email")}
-              >
-                Email
-              </button>
-              <button
-                type="button"
-                className={`segment-btn ${contactType === "phone" ? "segment-btn-active" : ""}`.trim()}
-                onClick={() => setContactType("phone")}
-              >
-                Mobile
-              </button>
+              <label className="switch-row switch-row-action" htmlFor="grant-by-phone">
+                <input
+                  className="toggle-input"
+                  id="grant-by-phone"
+                  type="checkbox"
+                  checked={contactType === "phone"}
+                  onChange={(event) => setContactType(event.target.checked ? "phone" : "email")}
+                />
+                Grant by mobile
+              </label>
             </div>
 
             <input
@@ -153,33 +308,41 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
               required
             />
 
-            <div className="segment-row">
-              <button
-                type="button"
-                className={`segment-btn ${role === "editor" ? "segment-btn-active" : ""}`.trim()}
-                onClick={() => setRole("editor")}
-              >
-                Editor
-              </button>
-              <button
-                type="button"
-                className={`segment-btn ${role === "admin" ? "segment-btn-active" : ""}`.trim()}
-                onClick={() => setRole("admin")}
-              >
-                Admin
-              </button>
-            </div>
+            <label className="switch-row switch-row-action" htmlFor="grant-admin">
+              <input
+                className="toggle-input"
+                id="grant-admin"
+                type="checkbox"
+                checked={role === "admin"}
+                onChange={(event) => setRole(event.target.checked ? "admin" : "editor")}
+              />
+              Admin access
+            </label>
 
             {role === "editor" && (
-              <label className="switch-row" htmlFor="allow-delete">
-                <input
-                  id="allow-delete"
-                  type="checkbox"
-                  checked={allowDeleteForEditor}
-                  onChange={(event) => setAllowDeleteForEditor(event.target.checked)}
-                />
-                Allow this editor to delete entries
-              </label>
+              <>
+                <label className="switch-row switch-row-action" htmlFor="allow-delete">
+                  <input
+                    className="toggle-input"
+                    id="allow-delete"
+                    type="checkbox"
+                    checked={allowDeleteForEditor}
+                    onChange={(event) => setAllowDeleteForEditor(event.target.checked)}
+                  />
+                  Allow this editor to delete entries
+                </label>
+
+                <label className="switch-row switch-row-action" htmlFor="allow-manage-categories">
+                  <input
+                    className="toggle-input"
+                    id="allow-manage-categories"
+                    type="checkbox"
+                    checked={allowManageCategoriesForEditor}
+                    onChange={(event) => setAllowManageCategoriesForEditor(event.target.checked)}
+                  />
+                  Allow this editor to manage categories
+                </label>
+              </>
             )}
 
             {error && <small className="error-text">{error}</small>}
@@ -213,33 +376,72 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
 
                   <div className="inline-actions">
                     {!isSelf && (
-                      <button
-                        className="secondary-btn"
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          updateRole(item.user_id, item.role === "admin" ? "editor" : "admin", item.can_delete_entries)
-                        }
-                      >
-                        {item.role === "admin" ? "Make Editor" : "Make Admin"}
-                      </button>
+                      <label className="switch-row switch-row-action" htmlFor={`toggle-admin-${item.user_id}`}>
+                        <input
+                          className="toggle-input"
+                          id={`toggle-admin-${item.user_id}`}
+                          type="checkbox"
+                          checked={item.role === "admin"}
+                          disabled={busy}
+                          onChange={(event) => {
+                            const nextRole: AppRole = event.target.checked ? "admin" : "editor";
+                            const nextDelete = nextRole === "admin" ? true : false;
+                            const nextManageCategories = nextRole === "admin" ? true : false;
+                            void updateRole(item.user_id, nextRole, nextDelete, nextManageCategories);
+                          }}
+                        />
+                        Admin access
+                      </label>
                     )}
 
                     {!isSelf && item.role === "editor" && (
-                      <button
-                        className="ghost-btn"
-                        type="button"
-                        disabled={busy}
-                        onClick={() => updateRole(item.user_id, "editor", !item.can_delete_entries)}
-                      >
-                        {item.can_delete_entries ? "Disable Delete" : "Allow Delete"}
-                      </button>
+                      <label className="switch-row switch-row-action" htmlFor={`toggle-delete-${item.user_id}`}>
+                        <input
+                          className="toggle-input"
+                          id={`toggle-delete-${item.user_id}`}
+                          type="checkbox"
+                          checked={item.can_delete_entries}
+                          disabled={busy}
+                          onChange={(event) => {
+                            void updateRole(item.user_id, "editor", event.target.checked, item.can_manage_categories);
+                          }}
+                        />
+                        Delete entries
+                      </label>
+                    )}
+
+                    {!isSelf && item.role === "editor" && (
+                      <label className="switch-row switch-row-action" htmlFor={`toggle-manage-categories-${item.user_id}`}>
+                        <input
+                          className="toggle-input"
+                          id={`toggle-manage-categories-${item.user_id}`}
+                          type="checkbox"
+                          checked={item.can_manage_categories}
+                          disabled={busy}
+                          onChange={(event) => {
+                            void updateRole(item.user_id, "editor", item.can_delete_entries, event.target.checked);
+                          }}
+                        />
+                        Manage categories
+                      </label>
                     )}
 
                     {!isSelf && (
-                      <button className="reject-btn" type="button" disabled={busy} onClick={() => revoke(item.user_id)}>
-                        Revoke
-                      </button>
+                      <label className="switch-row switch-row-action" htmlFor={`toggle-access-${item.user_id}`}>
+                        <input
+                          className="toggle-input"
+                          id={`toggle-access-${item.user_id}`}
+                          type="checkbox"
+                          checked
+                          disabled={busy}
+                          onChange={(event) => {
+                            if (!event.target.checked) {
+                              void revoke(item.user_id);
+                            }
+                          }}
+                        />
+                        Workspace access
+                      </label>
                     )}
                   </div>
                 </article>

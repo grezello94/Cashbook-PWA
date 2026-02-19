@@ -8,7 +8,7 @@ import { detectCountryPreference } from "@/data/countries";
 import type { SignUpInput } from "@/hooks/useAuthSession";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
-import { formatCurrency, todayIsoDate } from "@/lib/format";
+import { formatCurrency, timeInTimeZoneHHmm, todayIsoDate, zonedDateTimeToIso } from "@/lib/format";
 import { enqueueEntry, flushQueue, queueSize } from "@/lib/offlineQueue";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 import { AuthPage } from "@/pages/AuthPage";
@@ -18,9 +18,9 @@ import { OnboardingPage } from "@/pages/OnboardingPage";
 import { ProfileSetupPage } from "@/pages/ProfileSetupPage";
 import { TeamPage } from "@/pages/TeamPage";
 import { generateAICategories } from "@/services/aiCategories";
-import { addAICategories, listCategories, seedIndustryCategories } from "@/services/categories";
+import { addAICategories, addManualCategory, archiveCategory, listCategories, seedIndustryCategories } from "@/services/categories";
 import { listPendingDeleteRequests, requestDelete, reviewDeleteRequest } from "@/services/deleteRequests";
-import { addEntry, deleteEntryDirect, listEntries } from "@/services/entries";
+import { addEntry, countActiveEntries, deleteEntryDirect, listEntries } from "@/services/entries";
 import {
   grantMemberAccessByContact,
   listWorkspaceMembers,
@@ -29,7 +29,7 @@ import {
 } from "@/services/members";
 import { getMyProfile, saveMyProfile } from "@/services/profile";
 import { uploadReceipt } from "@/services/storage";
-import { createWorkspaceWithOwner, getWorkspaceContext, listUserWorkspaces } from "@/services/workspace";
+import { createWorkspaceWithOwner, getWorkspaceContext, listUserWorkspaces, updateWorkspaceTimezone } from "@/services/workspace";
 import type {
   AppRole,
   CashDirection,
@@ -42,9 +42,13 @@ import type {
 
 const localeDefaultCurrency = detectCountryPreference().currency;
 const defaultCurrency = (import.meta.env.VITE_DEFAULT_CURRENCY || localeDefaultCurrency || "USD").toUpperCase();
+const LAST_WORKSPACE_KEY = "cashbook:last-workspace-id";
 
 function readError(error: unknown): string {
   if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === "object" && error && "message" in error && typeof error.message === "string") {
     return error.message;
   }
   return "Something went wrong";
@@ -74,6 +78,7 @@ export default function App(): JSX.Element {
   const [loading, setLoading] = useState(false);
   const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
   const [profileNameSeed, setProfileNameSeed] = useState("");
+  const [profilePhoneSeed, setProfilePhoneSeed] = useState("");
   const [onboardingCurrency, setOnboardingCurrency] = useState(defaultCurrency);
 
   const [context, setContext] = useState<WorkspaceContext | null>(null);
@@ -84,18 +89,60 @@ export default function App(): JSX.Element {
   const [tab, setTab] = useState<AppTab>("dashboard");
   const [message, setMessage] = useState<string>("");
   const [queueCount, setQueueCount] = useState<number>(queueSize());
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
+    typeof Notification === "undefined" ? "unsupported" : Notification.permission
+  );
+  const [installPromptEvent, setInstallPromptEvent] = useState<any>(null);
 
-  const [fabOpen, setFabOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const [quickDirection, setQuickDirection] = useState<CashDirection>("cash_out");
   const [quickAmount, setQuickAmount] = useState<string>("");
   const [quickCategoryId, setQuickCategoryId] = useState<string>("");
   const [quickRemarks, setQuickRemarks] = useState<string>("");
   const [quickDate, setQuickDate] = useState<string>(todayIsoDate());
+  const [quickTime, setQuickTime] = useState<string>("00:00");
   const [quickReceiptFile, setQuickReceiptFile] = useState<File | null>(null);
 
   const userId = session?.user.id ?? "";
   const workspaceId = context?.workspace.id ?? "";
+
+  const smartCategories = useMemo(() => {
+    if (!categories.length) {
+      return categories;
+    }
+
+    const usage = new Map<string, { count: number; lastUsed: number }>();
+    entries.forEach((entry) => {
+      const current = usage.get(entry.category_id) ?? { count: 0, lastUsed: 0 };
+      const entryTime = new Date(entry.entry_at).getTime();
+      usage.set(entry.category_id, {
+        count: current.count + 1,
+        lastUsed: Math.max(current.lastUsed, entryTime)
+      });
+    });
+
+    return [...categories].sort((a, b) => {
+      const aUsage = usage.get(a.id) ?? { count: 0, lastUsed: 0 };
+      const bUsage = usage.get(b.id) ?? { count: 0, lastUsed: 0 };
+
+      if (aUsage.count !== bUsage.count) {
+        return bUsage.count - aUsage.count;
+      }
+      if (aUsage.lastUsed !== bUsage.lastUsed) {
+        return bUsage.lastUsed - aUsage.lastUsed;
+      }
+      return a.name.localeCompare(b.name);
+    });
+  }, [categories, entries]);
+
+  const memberNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    teamMembers.forEach((item) => {
+      const label = item.full_name || item.email || item.phone || item.user_id;
+      map.set(item.user_id, label);
+    });
+    return map;
+  }, [teamMembers]);
 
   useEffect(() => {
     if (!message) {
@@ -109,6 +156,113 @@ export default function App(): JSX.Element {
   const notify = (text: string): void => {
     setMessage(text);
   };
+
+  useEffect(() => {
+    const onBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPromptEvent(event);
+    };
+
+    const onInstalled = () => {
+      setInstallPromptEvent(null);
+      notify("App installed");
+    };
+
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt as EventListener);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt as EventListener);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  const enableNotifications = async (): Promise<void> => {
+    if (typeof Notification === "undefined") {
+      notify("Notifications are not supported on this browser.");
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      if (permission === "granted") {
+        notify("Notifications enabled");
+      } else {
+        notify("Notification permission was not granted");
+      }
+    } catch {
+      notify("Could not enable notifications");
+    }
+  };
+
+  const installApp = async (): Promise<void> => {
+    const isIos = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (installPromptEvent && typeof installPromptEvent.prompt === "function") {
+      installPromptEvent.prompt();
+      try {
+        await installPromptEvent.userChoice;
+      } catch {
+        // no-op
+      }
+      return;
+    }
+
+    if (isIos) {
+      notify("On Safari: tap Share, then Add to Home Screen.");
+      return;
+    }
+
+    notify("Use browser menu and choose Install app / Add to Home screen.");
+  };
+
+  const showEntrySystemNotification = useCallback(
+    async (entry: { id: string; direction: CashDirection; amount: number; category_id: string; created_by: string }) => {
+      if (typeof Notification === "undefined" || !context) {
+        return;
+      }
+
+      if (notificationPermission !== "granted") {
+        return;
+      }
+
+      const actor =
+        entry.created_by === userId
+          ? "You"
+          : memberNameById.get(entry.created_by) || "A team member";
+      const side = entry.direction === "cash_in" ? "Cash In" : "Cash Out";
+      const categoryName = categories.find((item) => item.id === entry.category_id)?.name ?? "Unknown category";
+      const amountText = formatCurrency(entry.amount, context.workspace.currency);
+
+      new Notification("Cashbook Entry Alert", {
+        body: `${actor} added ${side} ${amountText} in ${categoryName}.`,
+        tag: `entry-${entry.id}`
+      });
+    },
+    [context, userId, memberNameById, categories, notificationPermission]
+  );
+
+  const showEntryInAppAlert = useCallback(
+    (entry: { direction: CashDirection; amount: number; category_id: string; created_by: string }) => {
+      if (!context) {
+        return;
+      }
+
+      const actor =
+        entry.created_by === userId
+          ? "You"
+          : memberNameById.get(entry.created_by) || "A team member";
+      const side = entry.direction === "cash_in" ? "Cash In" : "Cash Out";
+      const categoryName = categories.find((item) => item.id === entry.category_id)?.name ?? "Unknown category";
+      const amountText = formatCurrency(entry.amount, context.workspace.currency);
+
+      notify(`${actor} added ${side} ${amountText} in ${categoryName}`);
+
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        navigator.vibrate(120);
+      }
+    },
+    [context, userId, memberNameById, categories]
+  );
 
   const loadWorkspace = useCallback(async (workspaceId: string, currentUserId: string) => {
     const workspaceContext = await getWorkspaceContext(workspaceId, currentUserId);
@@ -134,6 +288,7 @@ export default function App(): JSX.Element {
     setEntries(entryRows);
     setPendingDeleteRequests(deleteRows);
     setTeamMembers(memberRows);
+    window.localStorage.setItem(LAST_WORKSPACE_KEY, workspaceId);
   }, []);
 
   const bootstrapWorkspace = useCallback(
@@ -148,7 +303,26 @@ export default function App(): JSX.Element {
         return;
       }
 
-      await loadWorkspace(workspaces[0].workspace.id, uid);
+      const savedWorkspaceId = window.localStorage.getItem(LAST_WORKSPACE_KEY) ?? "";
+      const savedWorkspace = workspaces.find((item) => item.workspace.id === savedWorkspaceId);
+      if (savedWorkspace) {
+        await loadWorkspace(savedWorkspace.workspace.id, uid);
+        return;
+      }
+
+      const ranked = await Promise.all(
+        workspaces.map(async (item) => {
+          try {
+            const count = await countActiveEntries(item.workspace.id);
+            return { workspaceId: item.workspace.id, count };
+          } catch {
+            return { workspaceId: item.workspace.id, count: 0 };
+          }
+        })
+      );
+      ranked.sort((a, b) => b.count - a.count);
+      const fallbackWorkspaceId = ranked[0]?.workspaceId ?? workspaces[0].workspace.id;
+      await loadWorkspace(fallbackWorkspaceId, uid);
     },
     [loadWorkspace]
   );
@@ -157,6 +331,7 @@ export default function App(): JSX.Element {
     if (!userId) {
       setNeedsProfileSetup(false);
       setProfileNameSeed("");
+      setProfilePhoneSeed("");
       setOnboardingCurrency(defaultCurrency);
       setContext(null);
       setCategories([]);
@@ -177,6 +352,7 @@ export default function App(): JSX.Element {
         const metaCurrency = readMetaString(metadata, "currency").toUpperCase();
 
         setProfileNameSeed(fullName);
+        setProfilePhoneSeed(phone);
         setOnboardingCurrency(metaCurrency || defaultCurrency);
 
         if (!fullName || !phone) {
@@ -240,8 +416,8 @@ export default function App(): JSX.Element {
       return;
     }
 
-    const channel = sb
-      .channel(`workspace-live-${workspaceId}`)
+    const channel = (sb
+      .channel(`workspace-live-${workspaceId}`) as any)
       .on(
         "postgres_changes",
         {
@@ -250,7 +426,20 @@ export default function App(): JSX.Element {
           table: "entries",
           filter: `workspace_id=eq.${workspaceId}`
         },
-        () => {
+        (payload: {
+          eventType: string;
+          new: {
+            id: string;
+            direction: CashDirection;
+            amount: number;
+            category_id: string;
+            created_by: string;
+          };
+        }) => {
+          if (payload.eventType === "INSERT" && payload.new) {
+            showEntryInAppAlert(payload.new);
+            void showEntrySystemNotification(payload.new);
+          }
           void loadWorkspace(workspaceId, userId);
         }
       )
@@ -271,17 +460,17 @@ export default function App(): JSX.Element {
     return () => {
       void sb.removeChannel(channel);
     };
-  }, [workspaceId, userId, loadWorkspace]);
+  }, [workspaceId, userId, loadWorkspace, showEntrySystemNotification, showEntryInAppAlert]);
 
   const openQuickAdd = (direction: CashDirection) => {
     setQuickDirection(direction);
-    setQuickCategoryId(inferCategoryId(categories, direction));
+    setQuickCategoryId(inferCategoryId(smartCategories, direction));
     setQuickAmount("");
     setQuickRemarks("");
     setQuickDate(todayIsoDate());
+    setQuickTime(timeInTimeZoneHHmm(context?.workspace.timezone ?? "UTC"));
     setQuickReceiptFile(null);
     setQuickOpen(true);
-    setFabOpen(false);
   };
 
   const saveQuickEntry = async (): Promise<void> => {
@@ -314,7 +503,7 @@ export default function App(): JSX.Element {
       remarks: quickRemarks,
       receipt_url: receiptUrl,
       created_by: userId,
-      entry_at: `${quickDate}T00:00:00.000Z`
+      entry_at: zonedDateTimeToIso(quickDate, quickTime, context.workspace.timezone)
     };
 
     try {
@@ -390,12 +579,26 @@ export default function App(): JSX.Element {
     }
   };
 
-  const grantAccess = async (contact: string, role: AppRole, allowDeleteForEditor: boolean): Promise<void> => {
+  const grantAccess = async (
+    contact: string,
+    role: AppRole,
+    allowDeleteForEditor: boolean,
+    allowManageCategoriesForEditor: boolean
+  ): Promise<void> => {
     if (!workspaceId) {
       return;
     }
 
-    await grantMemberAccessByContact(workspaceId, contact, role, allowDeleteForEditor);
+    const targetUserId = await grantMemberAccessByContact(workspaceId, contact, role, allowDeleteForEditor);
+    if (role === "editor") {
+      await updateWorkspaceMemberRole(
+        workspaceId,
+        targetUserId,
+        "editor",
+        allowDeleteForEditor,
+        allowManageCategoriesForEditor
+      );
+    }
     const refreshed = await listWorkspaceMembers(workspaceId);
     setTeamMembers(refreshed);
     notify("Access granted");
@@ -404,13 +607,20 @@ export default function App(): JSX.Element {
   const updateMemberRole = async (
     targetUserId: string,
     role: AppRole,
-    allowDeleteForEditor: boolean
+    allowDeleteForEditor: boolean,
+    allowManageCategoriesForEditor: boolean
   ): Promise<void> => {
     if (!workspaceId) {
       return;
     }
 
-    await updateWorkspaceMemberRole(workspaceId, targetUserId, role, allowDeleteForEditor);
+    await updateWorkspaceMemberRole(
+      workspaceId,
+      targetUserId,
+      role,
+      allowDeleteForEditor,
+      allowManageCategoriesForEditor
+    );
     const refreshed = await listWorkspaceMembers(workspaceId);
     setTeamMembers(refreshed);
     notify("Access updated");
@@ -425,6 +635,37 @@ export default function App(): JSX.Element {
     const refreshed = await listWorkspaceMembers(workspaceId);
     setTeamMembers(refreshed);
     notify("Access revoked");
+  };
+
+  const createCategory = async (name: string, type: "income" | "expense"): Promise<void> => {
+    if (!workspaceId || !userId) {
+      return;
+    }
+
+    await addManualCategory(workspaceId, userId, name, type);
+    const refreshed = await listCategories(workspaceId);
+    setCategories(refreshed);
+    notify("Category added");
+  };
+
+  const dropCategory = async (categoryId: string): Promise<void> => {
+    if (!workspaceId) {
+      return;
+    }
+
+    await archiveCategory(workspaceId, categoryId);
+    const refreshed = await listCategories(workspaceId);
+    setCategories(refreshed);
+    notify("Category dropped");
+  };
+
+  const saveWorkspaceTimezone = async (timezone: string): Promise<void> => {
+    if (!workspaceId || !userId) {
+      return;
+    }
+    await updateWorkspaceTimezone(workspaceId, timezone);
+    await loadWorkspace(workspaceId, userId);
+    notify("Timezone updated");
   };
 
   const createWorkspace = async (
@@ -464,6 +705,7 @@ export default function App(): JSX.Element {
       await saveMyProfile(input);
       setNeedsProfileSetup(false);
       setProfileNameSeed(input.fullName);
+      setProfilePhoneSeed(input.phone);
       setOnboardingCurrency(input.currency.toUpperCase());
       await bootstrapWorkspace(userId);
       notify("Profile saved");
@@ -526,10 +768,10 @@ export default function App(): JSX.Element {
   };
 
   const addCategories = useMemo(() => {
-    return categories.filter((category) =>
+    return smartCategories.filter((category) =>
       quickDirection === "cash_in" ? category.type === "income" : category.type === "expense"
     );
-  }, [categories, quickDirection]);
+  }, [smartCategories, quickDirection]);
 
   if (!hasSupabaseConfig) {
     return (
@@ -575,6 +817,11 @@ export default function App(): JSX.Element {
         tab={tab}
         onTabChange={setTab}
         onSignOut={handleSignOut}
+        onEnableNotifications={enableNotifications}
+        onInstallApp={installApp}
+        notificationSupported={typeof Notification !== "undefined"}
+        notificationPermission={notificationPermission}
+        installAvailable={Boolean(installPromptEvent) || /iPhone|iPad|iPod/i.test(navigator.userAgent)}
         online={online}
         queueCount={queueCount}
       >
@@ -582,7 +829,7 @@ export default function App(): JSX.Element {
           <DashboardPage
             workspace={context.workspace}
             member={context.member}
-            categories={categories}
+            categories={smartCategories}
             entries={entries}
             pendingDeleteRequests={pendingDeleteRequests}
             onOpenQuickAdd={() => openQuickAdd("cash_out")}
@@ -592,17 +839,33 @@ export default function App(): JSX.Element {
         )}
 
         {tab === "history" && (
-          <HistoryPage currency={context.workspace.currency} categories={categories} entries={entries} />
+          <HistoryPage
+            workspaceName={context.workspace.name}
+            currency={context.workspace.currency}
+            timezone={context.workspace.timezone}
+            member={context.member}
+            categories={smartCategories}
+            entries={entries}
+            onAddCategory={createCategory}
+            onDropCategory={dropCategory}
+          />
         )}
 
         {tab === "team" && (
           <TeamPage
             member={context.member}
+            workspaceTimezone={context.workspace.timezone}
             members={teamMembers}
             currentUserId={userId}
+            currentUserProfile={{
+              fullName: profileNameSeed,
+              email: session.user.email ?? "",
+              phone: profilePhoneSeed
+            }}
             onGrantAccess={grantAccess}
             onUpdateMember={updateMemberRole}
             onRevokeMember={revokeAccess}
+            onUpdateTimezone={saveWorkspaceTimezone}
           />
         )}
       </AppShell>
@@ -632,6 +895,9 @@ export default function App(): JSX.Element {
 
             <label htmlFor="quick-date">Date</label>
             <input id="quick-date" type="date" value={quickDate} onChange={(event) => setQuickDate(event.target.value)} />
+
+            <label htmlFor="quick-time">Time</label>
+            <input id="quick-time" type="time" value={quickTime} onChange={(event) => setQuickTime(event.target.value)} />
 
             <label htmlFor="quick-remarks">Remarks</label>
             <textarea
@@ -666,7 +932,7 @@ export default function App(): JSX.Element {
         </div>
       )}
 
-      <FabBar open={fabOpen} onToggle={() => setFabOpen((prev) => !prev)} onPick={(direction) => openQuickAdd(direction)} />
+      {!quickOpen && <FabBar onPick={(direction) => openQuickAdd(direction)} />}
 
       {message && <div className="toast">{message}</div>}
     </>
