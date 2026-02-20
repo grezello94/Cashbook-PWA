@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { BrandLogo } from "@/components/common/BrandLogo";
 
 export type AppTab = "dashboard" | "history" | "team";
@@ -16,6 +16,7 @@ interface AppShellProps {
   installAvailable: boolean;
   online: boolean;
   queueCount: number;
+  syncBanner?: string;
   children: ReactNode;
 }
 
@@ -33,12 +34,20 @@ export function AppShell(props: AppShellProps): JSX.Element {
     installAvailable,
     online,
     queueCount,
+    syncBanner,
     children
   } = props;
 
   const pickTab = (nextTab: AppTab): void => {
     onTabChange(nextTab);
   };
+
+  useEffect(() => {
+    document.body.classList.add("app-shell-active");
+    return () => {
+      document.body.classList.remove("app-shell-active");
+    };
+  }, []);
 
   return (
     <div className="app-shell">
@@ -60,16 +69,22 @@ export function AppShell(props: AppShellProps): JSX.Element {
           </nav>
         </div>
         <div className="topbar-right">
-          {installAvailable && (
-            <button className="ghost-btn" onClick={onInstallApp}>
-              Install App
-            </button>
-          )}
-          {notificationSupported && (
-            <button className="ghost-btn" onClick={onEnableNotifications}>
-              {notificationPermission === "granted" ? "Alerts On" : "Enable Alerts"}
-            </button>
-          )}
+          <button
+            className="ghost-btn"
+            onClick={onInstallApp}
+            disabled={!installAvailable}
+            title={!installAvailable ? "Install is not available in this browser." : undefined}
+          >
+            Install App
+          </button>
+          <button
+            className="ghost-btn"
+            onClick={onEnableNotifications}
+            disabled={!notificationSupported}
+            title={!notificationSupported ? "Alerts are not supported in this browser." : undefined}
+          >
+            {notificationPermission === "granted" ? "Alerts On" : "Enable Alerts"}
+          </button>
           <span className={`pill ${online ? "pill-good" : "pill-warn"}`.trim()}>
             {online ? "Online" : `Offline (${queueCount})`}
           </span>
@@ -79,7 +94,9 @@ export function AppShell(props: AppShellProps): JSX.Element {
         </div>
       </header>
 
-      <main>{children}</main>
+      {syncBanner && <div className={`sync-banner ${online ? "sync-banner-warn" : "sync-banner-offline"}`}>{syncBanner}</div>}
+
+      <main className="app-main">{children}</main>
 
       <nav className="tabbar">
         <button className={tab === "dashboard" ? "active" : ""} onClick={() => pickTab("dashboard")}>

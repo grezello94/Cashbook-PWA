@@ -2,11 +2,12 @@ import type { CashDirection } from "@/types/domain";
 
 interface FabBarProps {
   onPick: (direction: CashDirection) => void;
+  className?: string;
 }
 
-export function FabBar({ onPick }: FabBarProps): JSX.Element {
+export function FabBar({ onPick, className = "" }: FabBarProps): JSX.Element {
   return (
-    <div className="fab-wrap">
+    <div className={`fab-wrap ${className}`.trim()}>
       <button className="fab-action fab-in" onClick={() => onPick("cash_in")}>
         Cash In
       </button>

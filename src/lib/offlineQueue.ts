@@ -24,7 +24,11 @@ function loadQueue(): QueueAction[] {
 }
 
 function saveQueue(items: QueueAction[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  } catch {
+    throw new Error("Could not save offline data on this device. Please free up storage and try again.");
+  }
 }
 
 function id(): string {
@@ -50,18 +54,20 @@ export async function flushQueue(
   handlers: {
     addEntry: (input: EntryInsertInput) => Promise<void>;
   }
-): Promise<void> {
+): Promise<{ processed: number; failed: number }> {
   const queue = loadQueue();
   if (!queue.length) {
-    return;
+    return { processed: 0, failed: 0 };
   }
 
   const remaining: QueueAction[] = [];
+  let processed = 0;
 
   for (const action of queue) {
     try {
       if (action.type === "add_entry") {
         await handlers.addEntry(action.payload);
+        processed += 1;
       }
     } catch {
       remaining.push(action);
@@ -69,4 +75,5 @@ export async function flushQueue(
   }
 
   saveQueue(remaining);
+  return { processed, failed: remaining.length };
 }

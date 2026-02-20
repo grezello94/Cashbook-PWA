@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BrandLogo } from "@/components/common/BrandLogo";
 import { LoadingPanel } from "@/components/common/LoadingPanel";
 import { NumericPad } from "@/components/common/NumericPad";
 import { NeonCard } from "@/components/common/NeonCard";
 import { AppShell, type AppTab } from "@/components/layout/AppShell";
-import { FabBar } from "@/components/layout/FabBar";
 import { detectCountryPreference } from "@/data/countries";
 import type { SignUpInput } from "@/hooks/useAuthSession";
 import { useAuthSession } from "@/hooks/useAuthSession";
@@ -18,6 +18,8 @@ import { OnboardingPage } from "@/pages/OnboardingPage";
 import { ProfileSetupPage } from "@/pages/ProfileSetupPage";
 import { TeamPage } from "@/pages/TeamPage";
 import { generateAICategories } from "@/services/aiCategories";
+import type { AICategorySuggestion } from "@/services/aiCategories";
+import { confirmAccountDeletion, requestAccountDeletion } from "@/services/accountDeletion";
 import { addAICategories, addManualCategory, archiveCategory, listCategories, seedIndustryCategories } from "@/services/categories";
 import { listPendingDeleteRequests, requestDelete, reviewDeleteRequest } from "@/services/deleteRequests";
 import { addEntry, countActiveEntries, deleteEntryDirect, listEntries } from "@/services/entries";
@@ -43,6 +45,8 @@ import type {
 const localeDefaultCurrency = detectCountryPreference().currency;
 const defaultCurrency = (import.meta.env.VITE_DEFAULT_CURRENCY || localeDefaultCurrency || "USD").toUpperCase();
 const LAST_WORKSPACE_KEY = "cashbook:last-workspace-id";
+const WELCOME_PENDING_EMAIL_KEY = "cashbook:welcome-pending-email";
+const WELCOME_SHOWN_USER_KEY_PREFIX = "cashbook:welcome-shown:";
 
 function readError(error: unknown): string {
   if (error instanceof Error && error.message) {
@@ -89,6 +93,8 @@ export default function App(): JSX.Element {
   const [tab, setTab] = useState<AppTab>("dashboard");
   const [message, setMessage] = useState<string>("");
   const [queueCount, setQueueCount] = useState<number>(queueSize());
+  const [syncingQueue, setSyncingQueue] = useState(false);
+  const [syncIssue, setSyncIssue] = useState("");
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
     typeof Notification === "undefined" ? "unsupported" : Notification.permission
   );
@@ -102,6 +108,12 @@ export default function App(): JSX.Element {
   const [quickDate, setQuickDate] = useState<string>(todayIsoDate());
   const [quickTime, setQuickTime] = useState<string>("00:00");
   const [quickReceiptFile, setQuickReceiptFile] = useState<File | null>(null);
+  const [accountDeletionSending, setAccountDeletionSending] = useState(false);
+  const [accountDeletionConfirming, setAccountDeletionConfirming] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [welcomeName, setWelcomeName] = useState("");
+  const syncRunningRef = useRef(false);
+  const previousOnlineRef = useRef<boolean | null>(null);
 
   const userId = session?.user.id ?? "";
   const workspaceId = context?.workspace.id ?? "";
@@ -175,6 +187,35 @@ export default function App(): JSX.Element {
       window.removeEventListener("appinstalled", onInstalled);
     };
   }, []);
+
+  useEffect(() => {
+    if (!session || accountDeletionConfirming) {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    const token = url.searchParams.get("account_delete_token");
+    if (!token) {
+      return;
+    }
+
+    setAccountDeletionConfirming(true);
+    (async () => {
+      try {
+        await confirmAccountDeletion(token);
+        notify("Account deleted. Your data is archived and access has been removed.");
+        await signOut();
+      } catch (error) {
+        notify(readError(error));
+      } finally {
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete("account_delete_token");
+        window.history.replaceState({}, "", cleanUrl.toString());
+        setAccountDeletionConfirming(false);
+      }
+    })();
+  }, [session, accountDeletionConfirming, signOut]);
+
 
   const enableNotifications = async (): Promise<void> => {
     if (typeof Notification === "undefined") {
@@ -338,6 +379,9 @@ export default function App(): JSX.Element {
       setEntries([]);
       setPendingDeleteRequests([]);
       setTeamMembers([]);
+      setQueueCount(queueSize());
+      setSyncingQueue(false);
+      setSyncIssue("");
       return;
     }
 
@@ -376,37 +420,124 @@ export default function App(): JSX.Element {
   }, [userId, session, bootstrapWorkspace]);
 
   useEffect(() => {
-    if (!online || !workspaceId || !userId) {
+    if (!session?.user?.id) {
       return;
     }
 
-    const pending = queueSize();
-    setQueueCount(pending);
-    if (pending === 0) {
+    const normalizedEmail = (session.user.email ?? "").trim().toLowerCase();
+    const pendingEmail = (window.localStorage.getItem(WELCOME_PENDING_EMAIL_KEY) ?? "").trim().toLowerCase();
+    const shownKey = `${WELCOME_SHOWN_USER_KEY_PREFIX}${session.user.id}`;
+    if (window.localStorage.getItem(shownKey) === "1") {
+      if (pendingEmail && normalizedEmail && pendingEmail === normalizedEmail) {
+        window.localStorage.removeItem(WELCOME_PENDING_EMAIL_KEY);
+      }
+      return;
+    }
+
+    const createdAtMs = Date.parse(session.user.created_at ?? "");
+    const accountCreatedRecently = Number.isFinite(createdAtMs) && Date.now() - createdAtMs < 1000 * 60 * 60 * 24;
+    const isPendingSignUp = Boolean(pendingEmail && normalizedEmail && pendingEmail === normalizedEmail);
+    if (!isPendingSignUp && !accountCreatedRecently) {
+      return;
+    }
+
+    const metadataName = readMetaString((session.user.user_metadata ?? {}) as Record<string, unknown>, "full_name").trim();
+    setWelcomeName(metadataName || profileNameSeed || "there");
+    setShowWelcome(true);
+    window.localStorage.setItem(shownKey, "1");
+    if (isPendingSignUp) {
+      window.localStorage.removeItem(WELCOME_PENDING_EMAIL_KEY);
+    }
+  }, [session, profileNameSeed]);
+
+  useEffect(() => {
+    if (!workspaceId || !userId) {
+      return;
+    }
+
+    const previous = previousOnlineRef.current;
+    previousOnlineRef.current = online;
+    if (previous === null) {
+      return;
+    }
+
+    if (!online) {
+      notify("Offline mode: entries are saved on this device and will auto-sync when internet returns.");
+      return;
+    }
+
+    if (!previous && online && queueSize() > 0) {
+      notify("Back online. Syncing your offline entries now.");
+    }
+  }, [online, workspaceId, userId]);
+
+  useEffect(() => {
+    if (!online || !workspaceId || !userId) {
+      setSyncingQueue(false);
       return;
     }
 
     let cancelled = false;
-    flushQueue({
-      addEntry: async (payload) => {
-        await addEntry(payload);
+    const syncNow = async () => {
+      if (syncRunningRef.current) {
+        return;
       }
-    })
-      .then(async () => {
+
+      const pendingBefore = queueSize();
+      setQueueCount(pendingBefore);
+      if (pendingBefore === 0) {
+        setSyncIssue("");
+        return;
+      }
+
+      syncRunningRef.current = true;
+      setSyncingQueue(true);
+      try {
+        const result = await flushQueue({
+          addEntry: async (payload) => {
+            await addEntry(payload);
+          }
+        });
         if (cancelled) {
           return;
         }
-        setQueueCount(queueSize());
-        await loadWorkspace(workspaceId, userId);
-      })
-      .catch(() => {
+
+        const pendingAfter = queueSize();
+        setQueueCount(pendingAfter);
+        if (result.failed > 0) {
+          setSyncIssue("Some entries are still pending sync. They remain safely stored on this device.");
+        } else {
+          setSyncIssue("");
+        }
+
+        if (result.processed > 0) {
+          await loadWorkspace(workspaceId, userId);
+        }
+
+        if (pendingBefore > 0 && pendingAfter === 0) {
+          notify(`Sync complete: ${result.processed} offline entr${result.processed === 1 ? "y" : "ies"} uploaded.`);
+        }
+      } catch {
         if (!cancelled) {
           setQueueCount(queueSize());
+          setSyncIssue("Sync paused due to network/server issue. Offline entries are still safe and retrying.");
         }
-      });
+      } finally {
+        syncRunningRef.current = false;
+        if (!cancelled) {
+          setSyncingQueue(false);
+        }
+      }
+    };
+
+    void syncNow();
+    const timer = window.setInterval(() => {
+      void syncNow();
+    }, 15000);
 
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, [online, workspaceId, userId, loadWorkspace]);
 
@@ -668,9 +799,25 @@ export default function App(): JSX.Element {
     notify("Timezone updated");
   };
 
+  const sendAccountDeletionLink = async (): Promise<void> => {
+    if (!session?.user.email) {
+      notify("No registered email found for this account.");
+      return;
+    }
+    setAccountDeletionSending(true);
+    try {
+      await requestAccountDeletion(session.user.email);
+      notify("Deletion confirmation link sent to your registered email.");
+    } catch (error) {
+      notify(readError(error));
+    } finally {
+      setAccountDeletionSending(false);
+    }
+  };
+
   const createWorkspace = async (
     input: { name: string; industry: string; timezone: string; currency: string },
-    aiNames: string[]
+    aiSuggestions: AICategorySuggestion[]
   ) => {
     if (!userId) {
       return;
@@ -680,7 +827,7 @@ export default function App(): JSX.Element {
     try {
       const createdWorkspaceId = await createWorkspaceWithOwner(input);
       await seedIndustryCategories(createdWorkspaceId, input.industry, userId);
-      await addAICategories(createdWorkspaceId, aiNames, userId, "expense");
+      await addAICategories(createdWorkspaceId, aiSuggestions, userId);
       await loadWorkspace(createdWorkspaceId, userId);
       notify("Workspace ready");
     } catch (error) {
@@ -722,6 +869,7 @@ export default function App(): JSX.Element {
 
   const handleSignUp = async (input: SignUpInput): Promise<void> => {
     await signUpWithEmail(input);
+    window.localStorage.setItem(WELCOME_PENDING_EMAIL_KEY, input.email.trim().toLowerCase());
   };
 
   const handleGoogle = async (): Promise<void> => {
@@ -772,6 +920,25 @@ export default function App(): JSX.Element {
       quickDirection === "cash_in" ? category.type === "income" : category.type === "expense"
     );
   }, [smartCategories, quickDirection]);
+
+  const syncBanner = useMemo(() => {
+    if (!context) {
+      return "";
+    }
+
+    if (!online) {
+      return "Offline mode: entries are saved securely on this device and will sync automatically when internet is back.";
+    }
+
+    if (queueCount > 0) {
+      if (syncingQueue) {
+        return `Sync in progress: ${queueCount} offline entr${queueCount === 1 ? "y" : "ies"} pending upload.`;
+      }
+      return syncIssue || `${queueCount} offline entr${queueCount === 1 ? "y is" : "ies are"} pending upload.`;
+    }
+
+    return "";
+  }, [context, online, queueCount, syncingQueue, syncIssue]);
 
   if (!hasSupabaseConfig) {
     return (
@@ -824,6 +991,7 @@ export default function App(): JSX.Element {
         installAvailable={Boolean(installPromptEvent) || /iPhone|iPad|iPod/i.test(navigator.userAgent)}
         online={online}
         queueCount={queueCount}
+        syncBanner={syncBanner}
       >
         {tab === "dashboard" && (
           <DashboardPage
@@ -832,7 +1000,7 @@ export default function App(): JSX.Element {
             categories={smartCategories}
             entries={entries}
             pendingDeleteRequests={pendingDeleteRequests}
-            onOpenQuickAdd={() => openQuickAdd("cash_out")}
+            onOpenQuickAdd={openQuickAdd}
             onDeleteEntry={deleteEntry}
             onReviewDeleteRequest={reviewDelete}
           />
@@ -866,6 +1034,8 @@ export default function App(): JSX.Element {
             onUpdateMember={updateMemberRole}
             onRevokeMember={revokeAccess}
             onUpdateTimezone={saveWorkspaceTimezone}
+            onRequestDeleteAccount={sendAccountDeletionLink}
+            deletingAccount={accountDeletionSending}
           />
         )}
       </AppShell>
@@ -932,7 +1102,39 @@ export default function App(): JSX.Element {
         </div>
       )}
 
-      {!quickOpen && <FabBar onPick={(direction) => openQuickAdd(direction)} />}
+      {showWelcome && (
+        <div className="modal-backdrop">
+          <div className="welcome-modal">
+            <div className="welcome-topline">Welcome to Cashbook by Routes</div>
+            <BrandLogo className="welcome-logo" />
+            <h3 className="welcome-title">Hello {welcomeName}, you are in the right place.</h3>
+            <p className="welcome-summary">
+              Track Cash. Stress Less. You can now manage daily cash records with a clean, reliable workflow built for
+              speed and clarity.
+            </p>
+            <div className="welcome-grid">
+              <div className="welcome-point">
+                <strong>Fast daily flow</strong>
+                <span>Use Cash In and Cash Out to capture entries in seconds.</span>
+              </div>
+              <div className="welcome-point">
+                <strong>Clear financial view</strong>
+                <span>See totals, trends, and exports in one professional workspace.</span>
+              </div>
+              <div className="welcome-point">
+                <strong>Team-ready controls</strong>
+                <span>Grant roles and permissions with admin-level control.</span>
+              </div>
+            </div>
+            <div className="welcome-assure">
+              Your records stay organized, auditable, and easy to access whenever you need them.
+            </div>
+            <button className="primary-btn welcome-cta" onClick={() => setShowWelcome(false)}>
+              Continue to Dashboard
+            </button>
+          </div>
+        </div>
+      )}
 
       {message && <div className="toast">{message}</div>}
     </>

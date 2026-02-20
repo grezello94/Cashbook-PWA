@@ -13,3 +13,7 @@ pnpm-debug.log*
 .dev.err.log
 .debug.log
 .debug.err.log
+.vercel
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts

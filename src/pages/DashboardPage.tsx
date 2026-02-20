@@ -1,6 +1,6 @@
 import { NeonCard } from "@/components/common/NeonCard";
 import { dateKeyInTimeZone, formatCurrency, formatDateTimeInTimeZone, todayInTimeZone } from "@/lib/format";
-import type { Category, DeleteRequest, Entry, Workspace, WorkspaceMember } from "@/types/domain";
+import type { CashDirection, Category, DeleteRequest, Entry, Workspace, WorkspaceMember } from "@/types/domain";
 
 interface DashboardPageProps {
   workspace: Workspace;
@@ -8,7 +8,7 @@ interface DashboardPageProps {
   categories: Category[];
   entries: Entry[];
   pendingDeleteRequests: DeleteRequest[];
-  onOpenQuickAdd: () => void;
+  onOpenQuickAdd: (direction: CashDirection) => void;
   onDeleteEntry: (entry: Entry) => Promise<void>;
   onReviewDeleteRequest: (id: string, approved: boolean) => Promise<void>;
 }
@@ -89,9 +89,14 @@ export function DashboardPage(props: DashboardPageProps): JSX.Element {
             <small className={`health-note ${aiInsight.tone}`.trim()}>{aiInsight.text}</small>
           </div>
         </div>
-        <button className="secondary-btn" onClick={onOpenQuickAdd}>
-          Quick Add
-        </button>
+        <div className="dashboard-primary-actions">
+          <button className="fab-action fab-in" onClick={() => onOpenQuickAdd("cash_in")}>
+            Cash In
+          </button>
+          <button className="fab-action fab-out" onClick={() => onOpenQuickAdd("cash_out")}>
+            Cash Out
+          </button>
+        </div>
       </NeonCard>
 
       <NeonCard title="Live Ticker" subtitle="Latest transactions">

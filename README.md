@@ -97,12 +97,22 @@ Cashbook PWA is a mobile-first Progressive Web App for day-to-day cash tracking 
   - Excel (`.xls` via HTML export)
   - PDF (print flow in new window)
 
-### 8. Smart UX Behaviors
+### 8. AI-Guided Onboarding Categories
+- Onboarding AI now generates **typed** categories (`income` + `expense`) instead of generic one-side suggestions.
+- Generation uses:
+  - selected industry templates
+  - niche text analysis (keyword boosters)
+  - optional external AI endpoint (`VITE_AI_CATEGORIES_ENDPOINT`) when configured
+- If AI endpoint is unavailable, app uses deterministic industry fallback categories so onboarding still works reliably.
+- Users can later drop/add categories through category controls.
+
+### 9. Smart UX Behaviors
 - Category ordering adapts by usage frequency and recency.
 - In/out and amount colors are highlighted for faster visual scanning.
 - Dashboard coach message and health indicator react to daily income/expense relationship.
+- First-time signup welcome modal shows branded onboarding message with logo/tagline.
 
-### 9. Timezone Handling
+### 10. Timezone Handling
 - Workspace timezone drives:
   - entry date keying
   - display formatting in dashboard/history
@@ -110,13 +120,15 @@ Cashbook PWA is a mobile-first Progressive Web App for day-to-day cash tracking 
 - Profile/team flows support timezone updates.
 - Invalid timezone/date inputs are guarded with safe fallbacks.
 
-### 10. Offline and Realtime
+### 11. Offline and Realtime
 - Offline queue stores unsynced add-entry actions in local storage.
-- Queue flushes automatically once online.
+- Queue is retried automatically when online and on interval, until pending items are synced.
+- Failed sync items remain queued (not dropped) and retry later.
+- UI shows explicit offline/sync status banner so users know entries are safe and pending.
 - Supabase Realtime subscriptions refresh entries and delete requests.
 - In-app toast and optional notification used for entry events.
 
-### 11. Stability Hardening
+### 12. Stability Hardening
 - Global React error boundary prevents blank-screen failures and offers reload.
 - Defensive formatting guards for date/time parsing and timezone fallback.
 
@@ -215,6 +227,7 @@ npm run preview
    - `202602180003_storage_receipts.sql`
    - `202602180004_member_management.sql`
    - `202602180005_profile_metadata_sync.sql`
+   - `202602200001_account_deletion_flow.sql`
 4. Ensure Storage bucket `receipts` exists (migration includes it).
 5. Enable Google provider in Supabase Auth if Google sign-in is required.
 

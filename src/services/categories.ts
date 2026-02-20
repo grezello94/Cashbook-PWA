@@ -1,5 +1,6 @@
 import { getDefaultCategories } from "@/data/defaultCategories";
 import { requireSupabase } from "@/lib/supabase";
+import type { AICategorySuggestion } from "@/services/aiCategories";
 import type { Category } from "@/types/domain";
 
 interface CategoryInsert {
@@ -58,19 +59,25 @@ export async function seedIndustryCategories(workspaceId: string, industry: stri
 
 export async function addAICategories(
   workspaceId: string,
-  names: string[],
-  userId: string,
-  type: "income" | "expense" = "expense"
+  suggestions: AICategorySuggestion[],
+  userId: string
 ): Promise<void> {
-  const uniqueNames = Array.from(new Set(names.map((item) => item.trim()).filter(Boolean)));
-  if (!uniqueNames.length) {
+  const unique = Array.from(
+    new Map(
+      suggestions
+        .map((item) => ({ name: item.name.trim(), type: item.type }))
+        .filter((item) => item.name.length > 0)
+        .map((item) => [`${item.type}:${item.name.toLowerCase()}`, item])
+    ).values()
+  );
+  if (!unique.length) {
     return;
   }
 
-  const payload: CategoryInsert[] = uniqueNames.map((name) => ({
+  const payload: CategoryInsert[] = unique.map((item) => ({
     workspace_id: workspaceId,
-    name,
-    type,
+    name: item.name,
+    type: item.type,
     icon: "✨",
     color: "#22d3ee",
     source: "ai_generated",

@@ -26,6 +26,8 @@ interface TeamPageProps {
   ) => Promise<void>;
   onRevokeMember: (targetUserId: string) => Promise<void>;
   onUpdateTimezone: (timezone: string) => Promise<void>;
+  onRequestDeleteAccount: () => Promise<void>;
+  deletingAccount: boolean;
 }
 
 export function TeamPage(props: TeamPageProps): JSX.Element {
@@ -38,7 +40,9 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
     onGrantAccess,
     onUpdateMember,
     onRevokeMember,
-    onUpdateTimezone
+    onUpdateTimezone,
+    onRequestDeleteAccount,
+    deletingAccount
   } = props;
 
   const [contactType, setContactType] = useState<"email" | "phone">("email");
@@ -52,6 +56,8 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
   const [timezoneValue, setTimezoneValue] = useState(workspaceTimezone);
   const [timezoneSaving, setTimezoneSaving] = useState(false);
   const [timezoneEditOpen, setTimezoneEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   const readMessage = (err: unknown, fallback: string): string => {
     if (err instanceof Error && err.message) {
@@ -211,6 +217,22 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
     }
   };
 
+  const submitDeleteRequest = async (): Promise<void> => {
+    if (deleteConfirmText.trim().toUpperCase() !== "DELETE") {
+      setError("Type DELETE to continue.");
+      return;
+    }
+
+    setError("");
+    try {
+      await onRequestDeleteAccount();
+      setDeleteOpen(false);
+      setDeleteConfirmText("");
+    } catch (err) {
+      setError(readMessage(err, "Could not start account deletion."));
+    }
+  };
+
   return (
     <section className="stack-lg">
       <NeonCard title="My Profile" subtitle="Your signed-in account details">
@@ -270,6 +292,52 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
             </div>
           </div>
         )}
+
+        <div className={`danger-zone ${deleteOpen ? "danger-zone-open" : ""}`.trim()}>
+          {!deleteOpen ? (
+            <div className="danger-zone-collapsed">
+              <small>Need to close this account?</small>
+              <button className="danger-link-btn" type="button" onClick={() => setDeleteOpen(true)}>
+                Delete account
+              </button>
+            </div>
+          ) : (
+            <div className="stack">
+              <div className="danger-zone-head">
+                <strong>Delete Account</strong>
+                <small>This action removes your access from workspaces. Archived records are retained for audit.</small>
+              </div>
+              <small className="danger-text">
+                Are you sure you want to delete your account? You will lose app access and will need to register again.
+              </small>
+              <small className="danger-text">A confirmation link will be sent to your registered email.</small>
+              <label htmlFor="delete-confirm-input">Type DELETE to confirm</label>
+              <input
+                id="delete-confirm-input"
+                type="text"
+                value={deleteConfirmText}
+                onChange={(event) => setDeleteConfirmText(event.target.value)}
+                placeholder="DELETE"
+              />
+              <div className="inline-actions">
+                <button className="danger-btn danger-btn-compact" type="button" onClick={submitDeleteRequest} disabled={deletingAccount}>
+                  {deletingAccount ? "Sending link..." : "Send Confirmation Link"}
+                </button>
+                <button
+                  className="ghost-btn"
+                  type="button"
+                  onClick={() => {
+                    setDeleteOpen(false);
+                    setDeleteConfirmText("");
+                  }}
+                  disabled={deletingAccount}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </NeonCard>
 
       <NeonCard title="Your Access" subtitle={`Role: ${member.role}`}>
@@ -287,20 +355,60 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
           subtitle="User must sign up first, then grant access by email or phone"
         >
           <form className="stack" onSubmit={grant}>
-            <div className="segment-row">
-              <label className="switch-row switch-row-action" htmlFor="grant-by-phone">
-                <input
-                  className="toggle-input"
-                  id="grant-by-phone"
-                  type="checkbox"
-                  checked={contactType === "phone"}
-                  onChange={(event) => setContactType(event.target.checked ? "phone" : "email")}
-                />
-                Grant by mobile
-              </label>
+            <div className="access-alert">
+              <strong>Security-sensitive area</strong>
+              <small>Grant only to verified staff accounts. User must already be registered.</small>
             </div>
 
+            <div className="grant-grid">
+              <div className="control-block control-block-contact">
+                <label>Contact method</label>
+                <small className="muted">How you identify the user account</small>
+                <div className="method-row">
+                  <button
+                    type="button"
+                    className={`method-btn ${contactType === "email" ? "method-btn-active" : ""}`.trim()}
+                    onClick={() => setContactType("email")}
+                  >
+                    @ Email
+                  </button>
+                  <button
+                    type="button"
+                    className={`method-btn ${contactType === "phone" ? "method-btn-active" : ""}`.trim()}
+                    onClick={() => setContactType("phone")}
+                  >
+                    # Mobile
+                  </button>
+                </div>
+              </div>
+
+              <div className="control-block control-block-role">
+                <label>Role</label>
+                <small className="muted">Permission level for this member</small>
+                <div className="role-row">
+                  <button
+                    type="button"
+                    className={`role-btn role-btn-editor ${role === "editor" ? "role-btn-active" : ""}`.trim()}
+                    onClick={() => setRole("editor")}
+                  >
+                    Editor
+                    <span>Limited operations</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`role-btn role-btn-admin ${role === "admin" ? "role-btn-active" : ""}`.trim()}
+                    onClick={() => setRole("admin")}
+                  >
+                    Admin
+                    <span>Full control</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <label htmlFor="grant-contact">{contactType === "email" ? "Email" : "Mobile number"}</label>
             <input
+              id="grant-contact"
               type={contactType === "email" ? "email" : "tel"}
               value={contact}
               onChange={(event) => setContact(event.target.value)}
@@ -308,19 +416,21 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
               required
             />
 
-            <label className="switch-row switch-row-action" htmlFor="grant-admin">
-              <input
-                className="toggle-input"
-                id="grant-admin"
-                type="checkbox"
-                checked={role === "admin"}
-                onChange={(event) => setRole(event.target.checked ? "admin" : "editor")}
-              />
-              Admin access
-            </label>
+            <div className="type-selection-note">
+              Selected role:
+              <span className={`category-type-badge ${role === "admin" ? "category-type-expense" : "category-type-income"}`.trim()}>
+                {role === "admin" ? "Admin" : "Editor"}
+              </span>
+            </div>
+            <small className="muted">
+              {role === "admin"
+                ? "Admin can manage users, categories, and direct deletes."
+                : "Editor can add entries. Extra permissions can be enabled below."}
+            </small>
 
             {role === "editor" && (
-              <>
+              <div className="permission-block">
+                <p className="muted">Editor permissions</p>
                 <label className="switch-row switch-row-action" htmlFor="allow-delete">
                   <input
                     className="toggle-input"
@@ -342,7 +452,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                   />
                   Allow this editor to manage categories
                 </label>
-              </>
+              </div>
             )}
 
             {error && <small className="error-text">{error}</small>}
@@ -372,9 +482,16 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                     <small>
                       Role: {item.role} {item.role === "editor" ? `| Delete: ${item.can_delete_entries ? "Yes" : "No"}` : ""}
                     </small>
+                    <div className="member-badges">
+                      <span className={`category-type-badge ${item.role === "admin" ? "category-type-expense" : "category-type-income"}`.trim()}>
+                        {item.role === "admin" ? "Admin" : "Editor"}
+                      </span>
+                      {item.can_delete_entries && <span className="category-type-badge category-type-expense">Can delete</span>}
+                      {item.can_manage_categories && <span className="category-type-badge category-type-income">Manage categories</span>}
+                    </div>
                   </div>
 
-                  <div className="inline-actions">
+                  <div className="inline-actions member-toggle-grid">
                     {!isSelf && (
                       <label className="switch-row switch-row-action" htmlFor={`toggle-admin-${item.user_id}`}>
                         <input

@@ -2,12 +2,13 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { CreateWorkspaceInput } from "@/types/domain";
 import { industries } from "@/data/industries";
 import { NeonCard } from "@/components/common/NeonCard";
+import type { AICategorySuggestion } from "@/services/aiCategories";
 
 interface OnboardingPageProps {
   defaultCurrency: string;
   loading: boolean;
-  onGenerateAICategories: (prompt: string, industry: string) => Promise<string[]>;
-  onCreateWorkspace: (input: CreateWorkspaceInput, aiCategories: string[]) => Promise<void>;
+  onGenerateAICategories: (prompt: string, industry: string) => Promise<AICategorySuggestion[]>;
+  onCreateWorkspace: (input: CreateWorkspaceInput, aiCategories: AICategorySuggestion[]) => Promise<void>;
 }
 
 export function OnboardingPage(props: OnboardingPageProps): JSX.Element {
@@ -17,10 +18,10 @@ export function OnboardingPage(props: OnboardingPageProps): JSX.Element {
   const [currency, setCurrency] = useState(defaultCurrency);
   const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const [niche, setNiche] = useState("");
-  const [aiCategories, setAICategories] = useState<string[]>([]);
+  const [aiCategories, setAICategories] = useState<AICategorySuggestion[]>([]);
   const [generating, setGenerating] = useState(false);
 
-  const canGenerate = useMemo(() => niche.trim().length > 3, [niche]);
+  const canGenerate = useMemo(() => industry.trim().length > 0, [industry]);
 
   const onGenerate = async () => {
     setGenerating(true);
@@ -88,18 +89,18 @@ export function OnboardingPage(props: OnboardingPageProps): JSX.Element {
             id="niche"
             value={niche}
             onChange={(event) => setNiche(event.target.value)}
-            placeholder="I run a Vegan Ice Cream Truck"
+            placeholder="Example: I run a vegan ice-cream truck near schools and offices."
           />
 
           <button type="button" className="secondary-btn" onClick={onGenerate} disabled={!canGenerate || generating}>
-            {generating ? "Generating..." : "Generate AI Categories"}
+            {generating ? "Generating..." : "Generate Smart AI Categories"}
           </button>
 
           {!!aiCategories.length && (
             <div className="chip-list">
               {aiCategories.map((item) => (
-                <span key={item} className="chip">
-                  {item}
+                <span key={`${item.type}-${item.name}`} className="chip">
+                  {item.name} ({item.type === "income" ? "Income" : "Expense"})
                 </span>
               ))}
             </div>
