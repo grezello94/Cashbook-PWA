@@ -846,7 +846,7 @@ body.app-shell-active .app-shell {
 
 .switch-row {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
   font-size: 0.95rem;
 }
@@ -856,50 +856,90 @@ body.app-shell-active .app-shell {
 }
 
 .switch-row-action {
-  padding: 10px 12px;
-  border: 1px solid rgba(37, 99, 235, 0.22);
-  border-radius: 12px;
-  background: linear-gradient(180deg, #ffffff, #f7faff);
+  padding: 11px 12px;
+  border: 1px solid rgba(37, 99, 235, 0.24);
+  border-radius: 14px;
+  background: linear-gradient(165deg, #ffffff, #f4f8ff);
   min-width: 150px;
   justify-content: space-between;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.switch-row-action:hover {
+  border-color: rgba(37, 99, 235, 0.38);
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.1);
+}
+
+.switch-row-action:focus-within {
+  border-color: rgba(31, 94, 255, 0.5);
+  box-shadow: 0 0 0 4px rgba(31, 94, 255, 0.12);
+}
+
+.switch-label-text {
+  display: inline-flex;
+  align-items: center;
+  color: #1e293b;
+  font-weight: 600;
+  line-height: 1.3;
+  font-size: 0.97rem;
 }
 
 .toggle-input {
   appearance: none;
-  width: 42px;
-  height: 24px;
+  width: 52px;
+  height: 30px;
   border-radius: 999px;
-  border: 1px solid rgba(37, 99, 235, 0.32);
-  background: #dbeafe;
+  border: 1px solid rgba(30, 64, 175, 0.24);
+  background: linear-gradient(180deg, #e5edf8, #d6e2f4);
   position: relative;
-  transition: background 0.18s ease;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.1);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   cursor: pointer;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .toggle-input::after {
   content: "";
   position: absolute;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   top: 2px;
   left: 2px;
   border-radius: 999px;
-  background: #ffffff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16);
-  transition: transform 0.18s ease;
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+  border: 1px solid rgba(30, 64, 175, 0.18);
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.2);
+  transition: transform 0.2s ease;
 }
 
 .toggle-input:checked {
-  background: #3b82f6;
+  background: linear-gradient(145deg, #1f5eff, #2563eb);
+  border-color: rgba(30, 64, 175, 0.5);
+  box-shadow:
+    inset 0 1px 2px rgba(10, 25, 70, 0.28),
+    0 0 0 3px rgba(31, 94, 255, 0.14);
 }
 
 .toggle-input:checked::after {
-  transform: translateX(18px);
+  transform: translateX(22px);
+}
+
+.toggle-input:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 4px rgba(31, 94, 255, 0.22),
+    inset 0 1px 2px rgba(10, 25, 70, 0.28);
 }
 
 .toggle-input:disabled {
-  opacity: 0.65;
+  opacity: 0.55;
   cursor: not-allowed;
+  box-shadow: none;
+}
+
+.toggle-input:disabled::after {
+  box-shadow: none;
 }
 
 .member-row {

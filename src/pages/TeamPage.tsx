@@ -6,6 +6,7 @@ interface TeamPageProps {
   member: WorkspaceMember;
   workspaceTimezone: string;
   members: WorkspaceMemberDirectory[];
+  teamLoadError?: string;
   currentUserId: string;
   currentUserProfile: {
     fullName: string;
@@ -37,6 +38,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
     member,
     workspaceTimezone,
     members,
+    teamLoadError = "",
     currentUserId,
     currentUserProfile,
     onGrantAccess,
@@ -476,6 +478,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
               <div className="permission-block">
                 <p className="muted">Editor permissions</p>
                 <label className="switch-row switch-row-action" htmlFor="allow-delete">
+                  <span className="switch-label-text">Allow this editor to delete entries</span>
                   <input
                     className="toggle-input"
                     id="allow-delete"
@@ -483,10 +486,10 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                     checked={allowDeleteForEditor}
                     onChange={(event) => setAllowDeleteForEditor(event.target.checked)}
                   />
-                  Allow this editor to delete entries
                 </label>
 
                 <label className="switch-row switch-row-action" htmlFor="allow-manage-categories">
+                  <span className="switch-label-text">Allow this editor to manage categories</span>
                   <input
                     className="toggle-input"
                     id="allow-manage-categories"
@@ -494,7 +497,6 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                     checked={allowManageCategoriesForEditor}
                     onChange={(event) => setAllowManageCategoriesForEditor(event.target.checked)}
                   />
-                  Allow this editor to manage categories
                 </label>
               </div>
             )}
@@ -511,6 +513,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
       {canManageUsers && (
         <NeonCard title="Team Members" subtitle="Role and permission controls">
           <div className="stack">
+            {teamLoadError && <small className="error-text">Could not load team members: {teamLoadError}</small>}
             {sortedMembers.map((item) => {
               const isSelf = item.user_id === currentUserId;
               const busy = editingUserId === item.user_id;
@@ -539,6 +542,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                   <div className="inline-actions member-toggle-grid">
                     {!isSelf && (
                       <label className="switch-row switch-row-action" htmlFor={`toggle-admin-${item.user_id}`}>
+                        <span className="switch-label-text">Admin access</span>
                         <input
                           className="toggle-input"
                           id={`toggle-admin-${item.user_id}`}
@@ -552,12 +556,12 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                             void updateRole(item.user_id, nextRole, nextDelete, nextManageCategories);
                           }}
                         />
-                        Admin access
                       </label>
                     )}
 
                     {!isSelf && item.role === "editor" && (
                       <label className="switch-row switch-row-action" htmlFor={`toggle-delete-${item.user_id}`}>
+                        <span className="switch-label-text">Delete entries</span>
                         <input
                           className="toggle-input"
                           id={`toggle-delete-${item.user_id}`}
@@ -568,12 +572,12 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                             void updateRole(item.user_id, "editor", event.target.checked, item.can_manage_categories);
                           }}
                         />
-                        Delete entries
                       </label>
                     )}
 
                     {!isSelf && item.role === "editor" && (
                       <label className="switch-row switch-row-action" htmlFor={`toggle-manage-categories-${item.user_id}`}>
+                        <span className="switch-label-text">Manage categories</span>
                         <input
                           className="toggle-input"
                           id={`toggle-manage-categories-${item.user_id}`}
@@ -584,12 +588,12 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                             void updateRole(item.user_id, "editor", item.can_delete_entries, event.target.checked);
                           }}
                         />
-                        Manage categories
                       </label>
                     )}
 
                     {!isSelf && temporaryAccessAvailable && (
                       <label className="switch-row switch-row-action" htmlFor={`toggle-access-${item.user_id}`}>
+                        <span className="switch-label-text">Workspace access (temporary)</span>
                         <input
                           className="toggle-input"
                           id={`toggle-access-${item.user_id}`}
@@ -600,7 +604,6 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                             void toggleTemporaryAccess(item.user_id, !event.target.checked);
                           }}
                         />
-                        Workspace access (temporary)
                       </label>
                     )}
 
@@ -624,7 +627,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                 </article>
               );
             })}
-            {!sortedMembers.length && <p className="muted">No members found.</p>}
+            {!sortedMembers.length && !teamLoadError && <p className="muted">No members found.</p>}
           </div>
         </NeonCard>
       )}

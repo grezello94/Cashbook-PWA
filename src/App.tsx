@@ -116,6 +116,7 @@ export default function App(): JSX.Element {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [pendingDeleteRequests, setPendingDeleteRequests] = useState<DeleteRequest[]>([]);
   const [teamMembers, setTeamMembers] = useState<WorkspaceMemberDirectory[]>([]);
+  const [teamLoadError, setTeamLoadError] = useState("");
   const [pendingAccessRequests, setPendingAccessRequests] = useState<WorkspaceAccessRequest[]>([]);
   const [respondingAccessRequestId, setRespondingAccessRequestId] = useState("");
   const [temporaryAccessAvailable, setTemporaryAccessAvailable] = useState(true);
@@ -162,6 +163,7 @@ export default function App(): JSX.Element {
     setEntries([]);
     setPendingDeleteRequests([]);
     setTeamMembers([]);
+    setTeamLoadError("");
     setPendingAccessRequests([]);
     setRespondingAccessRequestId("");
     setProfileNameSeed("");
@@ -366,11 +368,13 @@ export default function App(): JSX.Element {
     }
 
     let memberRows: WorkspaceMemberDirectory[] = [];
+    setTeamLoadError("");
     if (workspaceContext.member.role === "admin" || workspaceContext.member.can_manage_users) {
       try {
         memberRows = await listWorkspaceMembers(workspaceId);
-      } catch {
+      } catch (error) {
         memberRows = [];
+        setTeamLoadError(readError(error));
       }
     }
 
@@ -428,6 +432,7 @@ export default function App(): JSX.Element {
         setEntries([]);
         setPendingDeleteRequests([]);
         setTeamMembers([]);
+        setTeamLoadError("");
         setPendingAccessRequests([]);
         setRespondingAccessRequestId("");
         return;
@@ -468,6 +473,7 @@ export default function App(): JSX.Element {
       setEntries([]);
       setPendingDeleteRequests([]);
       setTeamMembers([]);
+      setTeamLoadError("");
       setPendingAccessRequests([]);
       setRespondingAccessRequestId("");
       setTemporaryAccessAvailable(true);
@@ -1202,6 +1208,7 @@ export default function App(): JSX.Element {
             member={context.member}
             workspaceTimezone={context.workspace.timezone}
             members={teamMembers}
+            teamLoadError={teamLoadError}
             currentUserId={userId}
             currentUserProfile={{
               fullName: profileNameSeed,
