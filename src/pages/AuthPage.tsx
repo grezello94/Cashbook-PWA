@@ -83,7 +83,7 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
     } catch (err) {
       const raw = err instanceof Error ? err.message : "Sign up failed.";
       if (raw.toLowerCase().includes("already")) {
-        setError("This email is already registered. Use Sign In.");
+        setError("This email is already registered. Use Sign In to continue.");
       } else {
         setError(raw);
       }

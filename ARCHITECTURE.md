@@ -1,103 +1,191 @@
 # Cashbook PWA Architecture
 
-## Purpose
-This document explains how the app is structured, why major decisions were made, and what must be preserved when extending the system.
+## 1. Purpose
+This document explains the full architecture of Cashbook PWA so future development sessions can continue without losing context.
 
-## High-Level Architecture
-- Frontend: React + TypeScript + Vite (`src/`)
-- Backend: Supabase (Auth, Postgres, Storage, Realtime, RPC)
-- Data safety: local offline queue + reconnect auto-sync
-- Deployment: Vercel (PWA web distribution)
+## 2. System Overview
+- Client: React + TypeScript + Vite
+- Backend: Supabase (Auth, Postgres, RPC, RLS, Storage, Realtime)
+- Distribution: Vercel-hosted PWA
+- Data resilience: offline queue + reconnect sync
 
-## Runtime Layers
-- `src/pages/`: screen-level UI and interactions
-- `src/components/`: reusable UI building blocks and shell
-- `src/services/`: all Supabase data access and domain operations
-- `src/lib/`: shared utilities (`supabase`, formatting, offline queue)
-- `src/data/`: static domain defaults (industries, default categories, country helpers)
+## 3. Layered Design
 
-## Core Data Flow
-1. User authenticates (email/password or Google OAuth).
-2. Session boots in `App.tsx`.
-3. Profile completeness is checked.
-4. Workspace context is resolved.
-5. Categories, entries, and member directory are loaded.
-6. UI tabs (Dashboard / History / Team) consume shared app state.
+### UI Layer
+- `src/pages/*`: page-level experiences
+- `src/components/*`: reusable UI (shell, cards, logo, boundaries)
 
-## Key Decisions
+### Application Layer
+- `src/App.tsx`: central orchestration
+  - auth bootstrap
+  - profile gating
+  - workspace resolution
+  - tab routing state
+  - quick-add modal behavior
+  - realtime subscription refresh
 
-### 1) Single App Orchestrator (`App.tsx`)
-- Decision: keep session/workspace bootstrapping in one coordinator.
-- Why: avoids duplicated state/race conditions across pages.
+### Domain/Service Layer
+- `src/services/*`: all Supabase reads/writes and RPC calls
+- Keeps data operations out of rendering components
 
-### 2) Service-Oriented Data Access
-- Decision: pages call service functions; services own Supabase queries.
-- Why: keeps UI components thin and makes logic testable/traceable.
+### Shared Utilities
+- `src/lib/supabase.ts`: Supabase client + config checks
+- `src/lib/offlineQueue.ts`: local queue and flush operations
+- `src/lib/format.ts`: date, timezone, currency helpers
 
-### 3) DB-Enforced Permissions + UI Guards
-- Decision: permission checks exist in both UI and DB policies/RPC.
-- Why: frontend checks improve UX, DB checks enforce security.
+### Static Domain Data
+- `src/data/*`: industries, countries, default categories
 
-### 4) Offline-First for Entry Creation
-- Decision: enqueue writes in local storage when offline.
-- Why: protects against connectivity drops during cash entry.
-- Sync behavior:
-  - flush on reconnect
-  - periodic retry while online
-  - failed items remain queued
+## 4. Major Runtime Flows
 
-### 5) Timezone as Workspace Source of Truth
-- Decision: workspace timezone drives entry time defaults and rendering.
-- Why: keeps business-day reporting consistent across members/devices.
+### Auth and Boot Flow
+1. Resolve auth session (`useAuthSession`).
+2. If no session -> `AuthPage`.
+3. If session exists -> load profile.
+4. If profile incomplete -> `ProfileSetupPage`.
+5. If no workspace -> invite inbox or onboarding.
+6. If workspace exists -> `AppShell` with tabs.
 
-### 6) Category Direction Integrity
-- Decision: category type must align with entry direction.
-- Why: prevents accounting ambiguity and bad totals.
+### Workspace Selection Flow
+1. Load all workspaces for user.
+2. Try last workspace from local storage.
+3. If unavailable, rank workspaces by active entries.
+4. Load selected workspace context and data.
 
-### 7) AI Onboarding Categories
-- Decision: AI category generation is typed (`income` + `expense`) and industry-aware.
-- Why: onboarding quality is core product differentiator.
-- Fallback behavior:
-  - deterministic industry templates
-  - niche keyword boosters
-  - optional external endpoint when configured
+### Quick Add Entry Flow
+1. Open cash in/out modal.
+2. Auto-select default category by direction.
+3. Auto-focus amount field.
+4. Input uses native keyboard (`inputMode=decimal`).
+5. Save online directly, or enqueue offline.
 
-## Security Model
-- Supabase `anon` key is used client-side by design.
-- Security relies on RLS + RPC permission functions.
-- Never expose `service_role` in frontend.
-- Account deletion is confirmation-link based and archives access state.
+### Team Access Flow
+1. Admin creates access request by contact.
+2. Target user sees pending invites in inbox.
+3. Target user accepts/rejects.
+4. Membership is created only on acceptance.
+5. Admin can adjust role/permissions later.
 
-## Realtime Model
-- Supabase Realtime listens to `entries` and `delete_requests`.
-- On updates, workspace data is refreshed.
-- Browser notifications are optional and permission-gated.
+### Temporary Disable Flow
+1. Admin toggles workspace access off.
+2. Membership remains; `access_disabled=true`.
+3. Permission helper functions exclude disabled members.
+4. Admin toggles back on to restore access.
+5. If migration missing, UI hides toggle and shows upgrade hint.
 
-## Deployment Model
-- Production host: Vercel.
-- Required env vars:
-  - `VITE_SUPABASE_URL`
-  - `VITE_SUPABASE_ANON_KEY`
-  - optional: `VITE_DEFAULT_CURRENCY`, `VITE_AI_CATEGORIES_ENDPOINT`
+### Revoke Flow
+1. Admin confirms permanent revoke.
+2. Member row is deleted from `workspace_members`.
+3. User loses workspace access immediately.
 
-## Non-Negotiable Invariants
-- Do not break RLS assumptions.
-- Do not remove offline queue persistence.
-- Do not bypass role checks for admin/editor actions.
-- Do not change time handling to local-only naive strings.
-- Keep app usable on mobile first.
+### Account Deletion Flow
+1. User requests deletion link.
+2. Token-based confirmation occurs on callback.
+3. Preferred path uses dedicated RPC.
+4. Compatibility fallback uses auth metadata token fields.
 
-## Known Tradeoffs
-- Local storage queue is strong for normal offline usage, but can be lost if browser storage is manually cleared by user/device policy.
-- External AI endpoint quality depends on provider response schema and uptime.
+## 5. Data Model (Core)
+- `profiles`
+- `workspaces`
+- `workspace_members`
+- `categories`
+- `entries`
+- `delete_requests`
+- `audit_logs`
 
-## Validation Before Merge/Deploy
-- `npm run check`
-- `npm run build`
-- Manual smoke:
-  - login
-  - create entry
-  - offline entry + reconnect sync
-  - RBAC toggle behavior
-  - export flow
+## 6. Permission Model
+- Roles: `admin`, `editor`
+- Flags:
+  - `can_delete_entries`
+  - `can_manage_categories`
+  - `can_manage_users`
+  - `dashboard_scope`
+- Effective access checks are enforced at DB level through helper functions and RLS
 
+## 7. RPC and Service Matrix
+
+### Membership and Access
+- `list_workspace_members`
+- `request_workspace_access_by_contact`
+- `list_my_workspace_access_requests`
+- `respond_workspace_access_request`
+- `set_workspace_member_access_disabled`
+- `remove_workspace_member`
+- Legacy fallback: `add_workspace_member_by_contact`
+
+### Account Deletion
+- `request_account_deletion`
+- `confirm_account_deletion`
+- Metadata fallback when RPCs are missing
+
+### Workspace
+- `create_workspace_with_owner`
+- context/profile/workspace queries in services
+
+### Entries and Deletes
+- entry create/list/delete service methods
+- delete request create/review service methods
+
+## 8. Realtime + Offline Strategy
+
+### Realtime
+- Subscribes to workspace-related updates
+- Refreshes local workspace state on events
+
+### Offline
+- Queue stores pending entry payloads in local storage
+- Flush attempts on reconnect and periodic checks
+- Failed payloads remain queued
+
+## 9. Compatibility Strategy
+The app explicitly handles older DB states to prevent blank failures:
+- Missing access-request RPC -> legacy direct grant fallback
+- Missing remove-member RPC -> direct delete fallback
+- Missing account deletion RPC -> metadata fallback
+- Missing `access_disabled` column -> temporary toggle hidden
+
+## 10. Non-Negotiable Invariants
+- Mobile-first usability must remain intact
+- RLS and DB permission checks must not be bypassed
+- Direction/category consistency must be preserved
+- Offline queue must not drop unsynced data silently
+- Timezone-aware behavior must remain workspace-driven
+
+## 11. Operational Architecture Notes
+- PWA shell and icons are served from `public/`
+- Service worker cache versioning is required when shell files change
+- Vercel hosts static build output from Vite
+
+## 12. File Ownership Map
+- Core app flow: `src/App.tsx`
+- Team domain: `src/pages/TeamPage.tsx`, `src/services/members.ts`
+- History domain: `src/pages/HistoryPage.tsx`
+- Auth domain: `src/hooks/useAuthSession.ts`, `src/pages/AuthPage.tsx`
+- Deletion flow: `src/services/accountDeletion.ts`
+- Shell/header: `src/components/layout/AppShell.tsx`
+- DB schema evolution: `supabase/migrations/*.sql`
+
+## 13. Migration Dependencies
+Latest features require migration order from `README.md`.
+Critical current dependency:
+- `202602200003_member_access_controls.sql` for temporary disable (`access_disabled`).
+
+## 14. Quality Gates
+Before merge/release:
+1. `npm run check`
+2. `npm run build`
+3. Manual smoke across:
+  - auth
+  - onboarding
+  - quick add
+  - history + export
+  - team access request/accept/revoke
+  - temporary disable (if migration available)
+
+## 15. Future Website Reuse Notes
+This PWA architecture can be used as base for a broader website by reusing:
+- service layer contracts (`src/services/*`)
+- domain model types (`src/types/domain.ts`)
+- permission model and migration approach
+- shell + page segmentation strategy
+- deployment and release runbook

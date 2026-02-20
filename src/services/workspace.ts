@@ -19,6 +19,7 @@ interface WorkspaceMemberRow {
   can_manage_categories: boolean;
   can_manage_users: boolean;
   dashboard_scope: "full" | "shift";
+  access_disabled?: boolean;
   workspaces: WorkspaceRow | null;
 }
 
@@ -63,7 +64,8 @@ export async function listUserWorkspaces(userId: string): Promise<WorkspaceConte
         can_delete_entries: row.can_delete_entries,
         can_manage_categories: row.can_manage_categories,
         can_manage_users: row.can_manage_users,
-        dashboard_scope: row.dashboard_scope
+        dashboard_scope: row.dashboard_scope,
+        access_disabled: Boolean(row.access_disabled)
       }
     }));
 }
@@ -97,7 +99,8 @@ export async function getWorkspaceContext(workspaceId: string, userId: string): 
       can_delete_entries: row.can_delete_entries,
       can_manage_categories: row.can_manage_categories,
       can_manage_users: row.can_manage_users,
-      dashboard_scope: row.dashboard_scope
+      dashboard_scope: row.dashboard_scope,
+      access_disabled: Boolean(row.access_disabled)
     }
   };
 }

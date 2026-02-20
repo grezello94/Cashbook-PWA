@@ -55,8 +55,8 @@ export function AppShell(props: AppShellProps): JSX.Element {
         <div className="topbar-left">
           <BrandLogo compact className="header-logo" />
           <h1>{title}</h1>
-          <p>{subtitle}</p>
-          <nav className="header-tabs">
+          <p className="topbar-subtitle">{subtitle}</p>
+          <nav className="header-tabs topbar-tabs">
             <button className={tab === "dashboard" ? "active" : ""} onClick={() => pickTab("dashboard")}>
               Dashboard
             </button>
@@ -69,28 +69,33 @@ export function AppShell(props: AppShellProps): JSX.Element {
           </nav>
         </div>
         <div className="topbar-right">
-          <button
-            className="ghost-btn"
-            onClick={onInstallApp}
-            disabled={!installAvailable}
-            title={!installAvailable ? "Install is not available in this browser." : undefined}
-          >
-            Install App
-          </button>
-          <button
-            className="ghost-btn"
-            onClick={onEnableNotifications}
-            disabled={!notificationSupported}
-            title={!notificationSupported ? "Alerts are not supported in this browser." : undefined}
-          >
-            {notificationPermission === "granted" ? "Alerts On" : "Enable Alerts"}
-          </button>
-          <span className={`pill ${online ? "pill-good" : "pill-warn"}`.trim()}>
-            {online ? "Online" : `Offline (${queueCount})`}
-          </span>
-          <button className="ghost-btn" onClick={onSignOut}>
-            Sign Out
-          </button>
+          <div className="topbar-actions">
+            <button
+              className="ghost-btn"
+              onClick={onInstallApp}
+              disabled={!installAvailable}
+              title={!installAvailable ? "Install is not available in this browser." : undefined}
+            >
+              Install App
+            </button>
+            <button
+              className="ghost-btn"
+              onClick={onEnableNotifications}
+              disabled={!notificationSupported}
+              title={!notificationSupported ? "Alerts are not supported in this browser." : undefined}
+            >
+              {notificationPermission === "granted" ? "Alerts On" : "Enable Alerts"}
+            </button>
+          </div>
+          <div className="topbar-status">
+            <span className={`pill ${online ? "pill-good" : "pill-warn"}`.trim()}>
+              {online ? "Online" : "Offline"}
+            </span>
+            {queueCount > 0 && <span className="pill pill-queue">{queueCount} pending</span>}
+            <button className="ghost-btn topbar-signout" onClick={onSignOut}>
+              Sign Out
+            </button>
+          </div>
         </div>
       </header>
 

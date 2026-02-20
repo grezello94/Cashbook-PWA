@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandLogo } from "@/components/common/BrandLogo";
 import { LoadingPanel } from "@/components/common/LoadingPanel";
-import { NumericPad } from "@/components/common/NumericPad";
 import { NeonCard } from "@/components/common/NeonCard";
 import { AppShell, type AppTab } from "@/components/layout/AppShell";
 import { detectCountryPreference } from "@/data/countries";
@@ -14,6 +13,7 @@ import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 import { AuthPage } from "@/pages/AuthPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { HistoryPage } from "@/pages/HistoryPage";
+import { InviteInboxPage } from "@/pages/InviteInboxPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
 import { ProfileSetupPage } from "@/pages/ProfileSetupPage";
 import { TeamPage } from "@/pages/TeamPage";
@@ -25,8 +25,11 @@ import { listPendingDeleteRequests, requestDelete, reviewDeleteRequest } from "@
 import { addEntry, countActiveEntries, deleteEntryDirect, listEntries } from "@/services/entries";
 import {
   grantMemberAccessByContact,
+  listMyWorkspaceAccessRequests,
   listWorkspaceMembers,
+  respondWorkspaceAccessRequest,
   revokeWorkspaceMember,
+  setWorkspaceMemberAccessDisabled,
   updateWorkspaceMemberRole
 } from "@/services/members";
 import { getMyProfile, saveMyProfile } from "@/services/profile";
@@ -38,6 +41,7 @@ import type {
   Category,
   DeleteRequest,
   Entry,
+  WorkspaceAccessRequest,
   WorkspaceContext,
   WorkspaceMemberDirectory
 } from "@/types/domain";
@@ -68,6 +72,28 @@ function readMetaString(meta: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
+function sanitizeAmountInput(value: string): string {
+  const normalized = value.replace(/,/g, ".").replace(/[^\d.]/g, "");
+  const [whole, ...fractionParts] = normalized.split(".");
+  if (!fractionParts.length) {
+    return whole;
+  }
+  const fraction = fractionParts.join("").slice(0, 2);
+  return `${whole}.${fraction}`;
+}
+
+function isLikelyMobileDevice(): boolean {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+  const ua = navigator.userAgent || "";
+  const coarsePointer =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(pointer: coarse)").matches;
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(ua) || (navigator.maxTouchPoints > 0 && coarsePointer);
+}
+
 export default function App(): JSX.Element {
   const online = useOnlineStatus();
   const {
@@ -90,6 +116,9 @@ export default function App(): JSX.Element {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [pendingDeleteRequests, setPendingDeleteRequests] = useState<DeleteRequest[]>([]);
   const [teamMembers, setTeamMembers] = useState<WorkspaceMemberDirectory[]>([]);
+  const [pendingAccessRequests, setPendingAccessRequests] = useState<WorkspaceAccessRequest[]>([]);
+  const [respondingAccessRequestId, setRespondingAccessRequestId] = useState("");
+  const [temporaryAccessAvailable, setTemporaryAccessAvailable] = useState(true);
   const [tab, setTab] = useState<AppTab>("dashboard");
   const [message, setMessage] = useState<string>("");
   const [queueCount, setQueueCount] = useState<number>(queueSize());
@@ -113,10 +142,31 @@ export default function App(): JSX.Element {
   const [showWelcome, setShowWelcome] = useState(false);
   const [welcomeName, setWelcomeName] = useState("");
   const syncRunningRef = useRef(false);
+  const accountRestoreRef = useRef(false);
   const previousOnlineRef = useRef<boolean | null>(null);
+  const lastUserIdRef = useRef<string>("");
+  const quickAmountInputRef = useRef<HTMLInputElement | null>(null);
 
   const userId = session?.user.id ?? "";
   const workspaceId = context?.workspace.id ?? "";
+  const mobileInputHapticsEnabled = useMemo(() => isLikelyMobileDevice(), []);
+
+  useEffect(() => {
+    if (lastUserIdRef.current === userId) {
+      return;
+    }
+
+    lastUserIdRef.current = userId;
+    setContext(null);
+    setCategories([]);
+    setEntries([]);
+    setPendingDeleteRequests([]);
+    setTeamMembers([]);
+    setPendingAccessRequests([]);
+    setRespondingAccessRequestId("");
+    setProfileNameSeed("");
+    setProfilePhoneSeed("");
+  }, [userId]);
 
   const smartCategories = useMemo(() => {
     if (!categories.length) {
@@ -332,6 +382,43 @@ export default function App(): JSX.Element {
     window.localStorage.setItem(LAST_WORKSPACE_KEY, workspaceId);
   }, []);
 
+  const detectTemporaryAccessAvailability = useCallback(async () => {
+    const sb = supabase;
+    if (!sb) {
+      setTemporaryAccessAvailable(false);
+      return;
+    }
+
+    const { error } = await sb.from("workspace_members").select("access_disabled").limit(1);
+    if (!error) {
+      setTemporaryAccessAvailable(true);
+      return;
+    }
+
+    const message = readError(error).toLowerCase();
+    if (message.includes("access_disabled")) {
+      setTemporaryAccessAvailable(false);
+      return;
+    }
+
+    setTemporaryAccessAvailable(true);
+  }, []);
+
+  const refreshAccessRequests = useCallback(async () => {
+    try {
+      const requests = await listMyWorkspaceAccessRequests();
+      setPendingAccessRequests(requests);
+    } catch (error) {
+      const message = readError(error).toLowerCase();
+      if (message.includes("list_my_workspace_access_requests")) {
+        // Backward compatibility if migrations are not applied yet.
+        setPendingAccessRequests([]);
+        return;
+      }
+      throw error;
+    }
+  }, []);
+
   const bootstrapWorkspace = useCallback(
     async (uid: string) => {
       const workspaces = await listUserWorkspaces(uid);
@@ -341,6 +428,8 @@ export default function App(): JSX.Element {
         setEntries([]);
         setPendingDeleteRequests([]);
         setTeamMembers([]);
+        setPendingAccessRequests([]);
+        setRespondingAccessRequestId("");
         return;
       }
 
@@ -379,6 +468,9 @@ export default function App(): JSX.Element {
       setEntries([]);
       setPendingDeleteRequests([]);
       setTeamMembers([]);
+      setPendingAccessRequests([]);
+      setRespondingAccessRequestId("");
+      setTemporaryAccessAvailable(true);
       setQueueCount(queueSize());
       setSyncingQueue(false);
       setSyncIssue("");
@@ -390,6 +482,52 @@ export default function App(): JSX.Element {
       try {
         const profile = await getMyProfile();
         const metadata = (session?.user.user_metadata ?? {}) as Record<string, unknown>;
+
+        const metadataDeletedAt = readMetaString(metadata, "account_deleted_at");
+        if (metadataDeletedAt && !accountRestoreRef.current) {
+          accountRestoreRef.current = true;
+          try {
+            const sb = supabase;
+            if (!sb) {
+              throw new Error("Supabase is not configured");
+            }
+
+            const { error: clearMetaError } = await sb.auth.updateUser({
+              data: {
+                account_deleted_at: null,
+                account_delete_token: null,
+                account_delete_expires_at: null,
+                account_delete_requested_at: null
+              }
+            });
+            if (clearMetaError) {
+              throw clearMetaError;
+            }
+
+            const { error: clearProfileFlagError } = await sb
+              .from("profiles")
+              .update({
+                deleted_at: null,
+                updated_at: new Date().toISOString()
+              })
+              .eq("id", userId);
+
+            if (
+              clearProfileFlagError &&
+              !clearProfileFlagError.message.toLowerCase().includes("deleted_at")
+            ) {
+              throw clearProfileFlagError;
+            }
+
+            notify("Your account is active again. Continue setup to start fresh.");
+          } catch (restoreError) {
+            notify(readError(restoreError));
+            await signOut();
+            return;
+          } finally {
+            accountRestoreRef.current = false;
+          }
+        }
 
         const fullName = (profile?.full_name ?? readMetaString(metadata, "full_name")).trim();
         const phone = (profile?.phone ?? readMetaString(metadata, "phone")).trim();
@@ -406,18 +544,24 @@ export default function App(): JSX.Element {
           setEntries([]);
           setPendingDeleteRequests([]);
           setTeamMembers([]);
+          setPendingAccessRequests([]);
+          setRespondingAccessRequestId("");
           return;
         }
 
         setNeedsProfileSetup(false);
-        await bootstrapWorkspace(userId);
+        await Promise.all([
+          bootstrapWorkspace(userId),
+          refreshAccessRequests(),
+          detectTemporaryAccessAvailability()
+        ]);
       } catch (error) {
         notify(readError(error));
       } finally {
         setLoading(false);
       }
     })();
-  }, [userId, session, bootstrapWorkspace]);
+  }, [userId, session, bootstrapWorkspace, refreshAccessRequests, detectTemporaryAccessAvailability, signOut]);
 
   useEffect(() => {
     if (!session?.user?.id) {
@@ -604,6 +748,24 @@ export default function App(): JSX.Element {
     setQuickOpen(true);
   };
 
+  useEffect(() => {
+    if (!quickOpen) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      const input = quickAmountInputRef.current;
+      if (!input) {
+        return;
+      }
+      input.focus();
+      const len = input.value.length;
+      input.setSelectionRange(len, len);
+    }, 35);
+
+    return () => window.clearTimeout(timer);
+  }, [quickOpen, quickDirection]);
+
   const saveQuickEntry = async (): Promise<void> => {
     if (!context || !userId || !quickCategoryId) {
       notify("Select a category first");
@@ -720,19 +882,22 @@ export default function App(): JSX.Element {
       return;
     }
 
-    const targetUserId = await grantMemberAccessByContact(workspaceId, contact, role, allowDeleteForEditor);
-    if (role === "editor") {
-      await updateWorkspaceMemberRole(
-        workspaceId,
-        targetUserId,
-        "editor",
-        allowDeleteForEditor,
-        allowManageCategoriesForEditor
-      );
-    }
+    const grantMode = await grantMemberAccessByContact(
+      workspaceId,
+      contact,
+      role,
+      allowDeleteForEditor,
+      allowManageCategoriesForEditor
+    );
     const refreshed = await listWorkspaceMembers(workspaceId);
     setTeamMembers(refreshed);
-    notify("Access granted");
+
+    if (grantMode === "requested") {
+      notify("Access request sent. User must confirm before getting workspace access.");
+      return;
+    }
+
+    notify("Access granted directly (legacy DB mode). Run latest migration to enable confirmation workflow.");
   };
 
   const updateMemberRole = async (
@@ -766,6 +931,38 @@ export default function App(): JSX.Element {
     const refreshed = await listWorkspaceMembers(workspaceId);
     setTeamMembers(refreshed);
     notify("Access revoked");
+  };
+
+  const setMemberTemporaryDisabled = async (targetUserId: string, disabled: boolean): Promise<void> => {
+    if (!workspaceId) {
+      return;
+    }
+    if (!temporaryAccessAvailable) {
+      notify("Temporary disable is not enabled in your database yet. Use Revoke permanently for now.");
+      return;
+    }
+
+    await setWorkspaceMemberAccessDisabled(workspaceId, targetUserId, disabled);
+    const refreshed = await listWorkspaceMembers(workspaceId);
+    setTeamMembers(refreshed);
+    notify(disabled ? "Member access disabled temporarily." : "Member access restored.");
+  };
+
+  const respondAccessRequest = async (requestId: string, decision: "accept" | "reject"): Promise<void> => {
+    if (!userId) {
+      return;
+    }
+
+    setRespondingAccessRequestId(requestId);
+    try {
+      await respondWorkspaceAccessRequest(requestId, decision);
+      await Promise.all([refreshAccessRequests(), bootstrapWorkspace(userId)]);
+      notify(decision === "accept" ? "Access request accepted." : "Access request rejected.");
+    } catch (error) {
+      notify(readError(error));
+    } finally {
+      setRespondingAccessRequestId("");
+    }
   };
 
   const createCategory = async (name: string, type: "income" | "expense"): Promise<void> => {
@@ -876,36 +1073,6 @@ export default function App(): JSX.Element {
     await signInWithGoogle();
   };
 
-  const startVoice = (): void => {
-    type SpeechWindow = Window & {
-      webkitSpeechRecognition?: new () => {
-        lang: string;
-        start: () => void;
-        onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-      };
-      SpeechRecognition?: new () => {
-        lang: string;
-        start: () => void;
-        onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-      };
-    };
-
-    const speechWindow = window as SpeechWindow;
-    const Recognition = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
-    if (!Recognition) {
-      notify("Voice input not available on this browser");
-      return;
-    }
-
-    const recognition = new Recognition();
-    recognition.lang = "en-US";
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      setQuickRemarks((prev) => `${prev} ${transcript}`.trim());
-    };
-    recognition.start();
-  };
-
   const handleSignOut = async () => {
     try {
       await signOut();
@@ -966,6 +1133,17 @@ export default function App(): JSX.Element {
   }
 
   if (!context) {
+    if (pendingAccessRequests.length > 0) {
+      return (
+        <InviteInboxPage
+          invites={pendingAccessRequests}
+          respondingId={respondingAccessRequestId}
+          onRespond={respondAccessRequest}
+          onGoOnboarding={() => setPendingAccessRequests([])}
+        />
+      );
+    }
+
     return (
       <OnboardingPage
         defaultCurrency={onboardingCurrency}
@@ -1032,6 +1210,8 @@ export default function App(): JSX.Element {
             }}
             onGrantAccess={grantAccess}
             onUpdateMember={updateMemberRole}
+            onSetMemberAccessDisabled={setMemberTemporaryDisabled}
+            temporaryAccessAvailable={temporaryAccessAvailable}
             onRevokeMember={revokeAccess}
             onUpdateTimezone={saveWorkspaceTimezone}
             onRequestDeleteAccount={sendAccountDeletionLink}
@@ -1044,11 +1224,29 @@ export default function App(): JSX.Element {
         <div className="modal-backdrop">
           <div className="quick-modal">
             <h3>{quickDirection === "cash_in" ? "Cash In" : "Cash Out"}</h3>
-            <p className="muted">Custom keypad input</p>
+            <p className="muted">Use your phone keyboard to enter amount</p>
 
             <div className="amount-display">{formatCurrency(Number(quickAmount || "0"), context.workspace.currency)}</div>
 
-            <NumericPad value={quickAmount} onChange={setQuickAmount} />
+            <label htmlFor="quick-amount">Amount</label>
+            <input
+              ref={quickAmountInputRef}
+              id="quick-amount"
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              enterKeyHint="next"
+              pattern="[0-9]*[.]?[0-9]{0,2}"
+              value={quickAmount}
+              placeholder="0.00"
+              onChange={(event) => {
+                const next = sanitizeAmountInput(event.target.value);
+                if (next !== quickAmount && mobileInputHapticsEnabled && typeof navigator !== "undefined" && "vibrate" in navigator) {
+                  navigator.vibrate(8);
+                }
+                setQuickAmount(next);
+              }}
+            />
 
             <label htmlFor="quick-category">Category</label>
             <div className="category-strip" id="quick-category">
@@ -1088,9 +1286,6 @@ export default function App(): JSX.Element {
             {quickReceiptFile && <small>{quickReceiptFile.name}</small>}
 
             <div className="inline-actions">
-              <button className="secondary-btn" onClick={startVoice}>
-                Voice
-              </button>
               <button className="ghost-btn" onClick={() => setQuickOpen(false)}>
                 Cancel
               </button>

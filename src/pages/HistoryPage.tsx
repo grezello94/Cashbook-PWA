@@ -302,7 +302,7 @@ export function HistoryPage({
   };
 
   return (
-    <section className="stack-lg">
+    <section className="stack-lg history-page">
       <NeonCard title="Time Travel Dial" subtitle={dateRange.label}>
         <div className="quick-preset-row" role="group" aria-label="Quick date filters">
           {presetOptions.map((preset) => (

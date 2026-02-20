@@ -1,296 +1,177 @@
 # Cashbook PWA
 
-Cashbook PWA is a mobile-first Progressive Web App for day-to-day cash tracking with workspace-based access control, realtime updates, timezone-aware entries, offline queueing, and export-ready reporting.
-
-## Project Rules
-- Keep app **mobile-first**. Any new UI must be tested for small screens first.
-- Preserve existing visual language unless a change is explicitly requested.
-- Do not relax RBAC checks in UI or backend policies.
-- Respect category direction rules:
-  - `cash_in` -> `income` category
-  - `cash_out` -> `expense` category
-- Keep timezone-aware behavior intact for create/read flows.
-- Never store secrets in client code or committed files.
-- Keep offline queue reliable:
-  - failed sync items must stay queued
-  - user must see clear offline/sync status
-- Prefer additive migrations; do not silently break old SQL/RPC behavior.
-- Run before shipping:
-  - `npm run check`
-  - `npm run build`
+Cashbook PWA is a mobile-first Progressive Web App for daily cash tracking with workspace-level access control, offline safety, and export-ready reporting.
 
 ## Author
 - Coded by **Grezello Kingsly Fernandes**
 
-## What This App Does
-- Track `Cash In` and `Cash Out` entries fast.
-- Manage categories (income/expense) with duplicate protection.
-- Support multi-user workspace access with admin/editor permissions.
-- Allow controlled delete flow (direct delete or approval request).
-- Show history with date presets and category filters.
-- Export filtered statement to Excel/PDF.
-- Work as a PWA with install support and service worker caching.
-- Provide realtime entry alerts and optional browser notifications.
+## Quick Start For Future AI Sessions
+When starting a new AI session, tell it to read files in this order:
+1. `README.md` (product scope + setup + operational runbook)
+2. `ARCHITECTURE.md` (technical structure + data flow + invariants)
+3. `TODO.md` (active roadmap + priority stack)
+
+## Product Scope
+This app currently supports:
+- Cash in/out entry logging
+- Category management with type safety (`income` and `expense`)
+- Team access controls (admin/editor)
+- Access request + user confirmation workflow
+- Temporary member suspension (when DB migration is enabled)
+- Permanent member revoke
+- Account deletion confirmation workflow
+- History filters and exports
+- Offline queue + auto sync
+- Realtime updates + optional alerts
+- PWA install flow and service worker caching
+
+## Complete Feature Inventory
+
+### 1. Authentication
+- Email/password sign in
+- Email/password sign up
+- Google OAuth sign in
+- Existing-account guard to reduce duplicate sign-up confusion
+
+### 2. Profile Setup
+- First-run profile capture:
+  - full name
+  - phone
+  - country
+  - default currency
+- Profile data is used in team display and access workflows
+
+### 3. Workspace Onboarding
+- Create workspace with:
+  - name
+  - industry
+  - timezone
+  - currency
+- Owner membership is auto-created
+- Industry categories are seeded
+- AI category suggestions can be added during onboarding
+
+### 4. AI Category Generation
+- Generates typed categories for both income and expense
+- Uses industry defaults and niche-aware enrichment
+- Supports optional remote endpoint via `VITE_AI_CATEGORIES_ENDPOINT`
+- Safe fallback exists if AI endpoint is unavailable
+
+### 5. Dashboard Operations
+- Cash In modal flow
+- Cash Out modal flow
+- Numeric amount entry via native mobile keyboard (`inputMode=decimal`)
+- Auto-focus amount field when quick add opens
+- Mobile haptic feedback on amount typing (supported devices)
+- Optional receipt image upload
+- Remarks, date, and time capture
+
+### 6. Entry Rules and Safety
+- Direction-category validation:
+  - `cash_in` must use `income`
+  - `cash_out` must use `expense`
+- Soft-delete model for entries
+- If user cannot delete directly, a delete request workflow is used
+
+### 7. Delete Request Workflow
+- Users without delete permission can request deletion
+- Admin can approve/reject requests
+- Approved request triggers delete workflow in DB logic
+
+### 8. Team and Access Management
+- Roles: `admin`, `editor`
+- Editor permission toggles:
+  - can delete entries
+  - can manage categories
+- Admin can promote/demote members
+- Admin can revoke member access permanently
+- Permanent revoke includes explicit confirmation prompt
+
+### 9. Access Request Confirmation Flow
+- Admin sends access request by email/phone
+- Target user must accept/reject request
+- Invite inbox page shown when user has pending requests and no active workspace
+- Legacy fallback path exists for older DB schema (direct grant mode)
+
+### 10. Temporary Access Disable
+- Admin can temporarily disable workspace access (suspend) without deleting membership
+- Temporarily disabled user keeps role metadata for later restore
+- Toggle is hidden/disabled automatically if DB migration is not applied
+- Clear UI guidance is shown when feature is unavailable
+
+### 11. Account Deletion Flow
+- User can request account deletion link
+- Confirmation uses tokenized flow
+- DB RPC path used when migration exists
+- Metadata-based fallback works when deletion RPC/migration is missing
+- Archived/deleted state can be recovered only by reactivation logic in app flow
+
+### 12. History and Reporting
+- Date presets:
+  - Today
+  - Yesterday
+  - This Week
+  - Last Week
+  - This Month So Far
+  - This Month
+  - Last Month
+  - Custom
+- Category filtering (income/expense grouped)
+- Totals summary strip:
+  - cash in
+  - cash out
+  - net
+- Exports:
+  - Excel (`.xls`)
+  - PDF (print window)
+
+### 13. Category Controls
+- Add manual categories with explicit type
+- Duplicate-safe behavior (DB + service constraints)
+- Drop flow with double-confirm pattern in UI
+- Category controls gated by admin/editor permission
+
+### 14. Offline-First Behavior
+- Offline queue persists entry creates in local storage
+- Queue key: `cashbook.offline.queue.v1`
+- Auto flush on reconnect
+- Retry loop while online
+- Failed syncs remain queued
+- User gets clear sync/offline status banners
+
+### 15. Realtime and Notification Behavior
+- Realtime subscriptions refresh workspace data
+- Optional browser notifications for entry events
+- In-app toast events for key actions
+- Notification permission managed from app shell
+
+### 16. PWA Behavior
+- Install prompt support (where browser supports)
+- iOS fallback guidance for Add to Home Screen
+- Service worker shell caching
+- App icons and manifest integration
+
+### 17. UI/UX Improvements Already Applied
+- Header spacing and hierarchy refined
+- Team/access sections reorganized for clarity
+- Voice button removed from quick entry modal
+- On-screen numeric keypad removed in favor of native keyboard
+- Reduced auth/session boot flicker with session dedupe logic
 
 ## Tech Stack
 - Frontend: React 18 + TypeScript + Vite
-- Backend: Supabase (Auth, Postgres, RLS, Storage, Realtime, RPC)
-- Styling: Custom CSS (+ Tailwind configured in project)
-- Build: `tsc` + `vite`
+- Backend: Supabase (Auth, Postgres, RLS, RPC, Storage, Realtime)
+- Styling: Custom CSS (mobile-first), Tailwind tooling available
+- Deployment: Vercel
 
-## Theme and Color System
-Core design tokens are defined in `src/styles.css` under `:root`.
-
-- Backgrounds:
-  - `--bg: #eef3fb`
-  - `--bg-soft: #ffffff`
-  - `--card: rgba(255, 255, 255, 0.9)`
-- Text:
-  - `--text: #0b172e`
-  - `--muted: #4d617f`
-- Brand / actions:
-  - `--blue: #1f5eff`
-  - `--blue-dark: #143eb5`
-  - `--blue-soft: #e3edff`
-- Semantic indicators:
-  - `--green: #0f9d58` (income / positive state)
-  - `--red: #e11d48` (expense / warning / destructive)
-- Borders and elevation:
-  - `--border: rgba(30, 64, 175, 0.18)`
-  - `--shadow-soft`, `--shadow-card`
-- Shape and spacing:
-  - `--radius-md`, `--radius-lg`, `--radius-xl`
-  - `--safe-top`, `--safe-bottom` for mobile safe-area insets
-
-### Visual Semantics
-- `Cash In` and positive net use green cues.
-- `Cash Out` and negative net use red cues.
-- Interactive primary actions use blue gradient.
-- Destructive actions use red styles and extra warnings.
-- App is tuned for mobile-first spacing and touch targets.
-
-## Platforms and Browser Targets
-- Mobile first: Android and iOS browsers
-- Desktop: Chrome, Brave, Edge, Firefox, Safari
-- PWA install:
-  - Chrome/Edge/Brave: install prompt when available
-  - iOS Safari: Add to Home Screen flow
-- Notifications:
-  - Browser/system notifications supported where platform allows permission + service support
-  - Behavior varies by browser/OS policy
-
-## Core Product Logic
-
-### 1. Authentication and Profile
-- Email/password sign in and sign up.
-- Google OAuth sign in supported.
-- New users get profile initialization via DB trigger.
-- Profile setup captures name/phone/country/currency before full workspace usage.
-
-### 2. Workspace and Membership Model
-- A user can belong to one or many workspaces.
-- Workspace has:
-  - `name`, `industry`, `timezone`, `currency`
-- App stores last active workspace in local storage and falls back to workspace with most active entries if needed.
-
-### 3. RBAC and Permission Controls
-- Roles: `admin`, `editor`
-- Permission flags:
-  - `can_delete_entries`
-  - `can_manage_categories`
-  - `can_manage_users`
-  - `dashboard_scope` (`full` or `shift`)
-- Admin normalization is enforced at DB trigger level.
-- Team management supports:
-  - grant/revoke workspace access
-  - toggle admin access
-  - toggle editor delete permission
-  - toggle editor category management permission
-
-### 4. Entry Lifecycle
-- Entry fields include direction, amount, category, remarks, optional receipt, datetime, creator.
-- Direction/category validation enforced server-side:
-  - `cash_in` must use `income` category
-  - `cash_out` must use `expense` category
-- Soft-delete model:
-  - active entries remain queryable by status
-  - delete updates status to `deleted` with actor and timestamp
-
-### 5. Delete Request Workflow
-- If user cannot delete directly:
-  - they create a delete request with reason
-- Admin/authorized reviewer can approve/reject
-- On approve:
-  - linked entry is soft-deleted automatically by trigger function
-- One pending delete request per entry is enforced by unique partial index
-
-### 6. Category Management Logic
-- Category type: `income` or `expense`
-- Source: `system`, `ai_generated`, `manual`
-- Duplicate prevention:
-  - unique key per workspace + type + normalized name
-- Drop behavior:
-  - category cannot be dropped if entries already reference it
-- UX safety:
-  - manage list can be collapsed
-  - two-step confirm drop flow to reduce accidental deletion
-
-### 7. History and Reporting
-- Date presets include:
-  - today, yesterday, this week, last week, this month so far, this month, last month, custom
-- Filter by category (grouped income/expense)
-- Summary strip shows:
-  - cash in, cash out, net
-- Export section uses current filters for report generation:
-  - Excel (`.xls` via HTML export)
-  - PDF (print flow in new window)
-
-### 8. AI-Guided Onboarding Categories
-- Onboarding AI now generates **typed** categories (`income` + `expense`) instead of generic one-side suggestions.
-- Generation uses:
-  - selected industry templates
-  - niche text analysis (keyword boosters)
-  - optional external AI endpoint (`VITE_AI_CATEGORIES_ENDPOINT`) when configured
-- If AI endpoint is unavailable, app uses deterministic industry fallback categories so onboarding still works reliably.
-- Users can later drop/add categories through category controls.
-
-### 9. Smart UX Behaviors
-- Category ordering adapts by usage frequency and recency.
-- In/out and amount colors are highlighted for faster visual scanning.
-- Dashboard coach message and health indicator react to daily income/expense relationship.
-- First-time signup welcome modal shows branded onboarding message with logo/tagline.
-
-### 10. Timezone Handling
-- Workspace timezone drives:
-  - entry date keying
-  - display formatting in dashboard/history
-  - quick-add default time
-- Profile/team flows support timezone updates.
-- Invalid timezone/date inputs are guarded with safe fallbacks.
-
-### 11. Offline and Realtime
-- Offline queue stores unsynced add-entry actions in local storage.
-- Queue is retried automatically when online and on interval, until pending items are synced.
-- Failed sync items remain queued (not dropped) and retry later.
-- UI shows explicit offline/sync status banner so users know entries are safe and pending.
-- Supabase Realtime subscriptions refresh entries and delete requests.
-- In-app toast and optional notification used for entry events.
-
-### 12. Stability Hardening
-- Global React error boundary prevents blank-screen failures and offers reload.
-- Defensive formatting guards for date/time parsing and timezone fallback.
-
-## End-to-End App Working (Runtime Flow)
-
-### Boot Flow
-1. Load env config and Supabase client.
-2. Get auth session.
-3. If no session -> show Auth page.
-4. If session exists:
-   - check profile completeness
-   - if incomplete -> Profile Setup
-   - else resolve workspace context
-5. If no workspace yet -> Onboarding
-6. Else -> AppShell with Dashboard / History / Team
-
-### Auth Flow
-- Email/password:
-  - `signUpWithEmail` stores profile fields in user metadata.
-  - existing-email guard prevents duplicate sign-up confusion.
-- Google OAuth:
-  - starts OAuth with `redirectTo: window.location.origin`.
-- First successful signup/login can trigger one-time branded welcome modal.
-
-### Onboarding Flow
-1. User enters workspace basics (`name`, `industry`, `currency`, `timezone`).
-2. Optional niche description generates AI categories.
-3. App creates workspace + owner membership.
-4. Seeds industry defaults + AI-generated categories.
-5. Loads workspace context and enters dashboard.
-
-### Entry Flow (Cash In / Cash Out)
-1. Quick entry modal captures amount, category, date/time, remarks, optional receipt.
-2. Direction enforces matching category type.
-3. If online:
-   - writes directly to Supabase.
-4. If offline:
-   - saves payload in local queue and shows queued state.
-5. On reconnect:
-   - queue auto-sync retries until empty.
-
-### Team Flow
-- Admin can:
-  - grant/revoke workspace access
-  - promote/demote role
-  - toggle delete/category management permissions
-- Editor access is constrained by flags and RLS.
-
-### Delete Flow
-- User with delete permission: direct soft delete.
-- User without delete permission: request delete.
-- Admin review decides approved/rejected.
-- Approved request auto-applies delete in DB logic.
-
-### History Flow
-- Date preset + optional custom range + category filter.
-- Shows filtered list + totals (cash in/out/net).
-- Export uses current filters to generate Excel/PDF outputs.
-
-### Offline and Sync Guarantees
-- Queue storage key: `cashbook.offline.queue.v1`
-- Offline entries are persisted in browser local storage.
-- Failed sync attempts keep remaining queue items.
-- Sync retries run automatically while online.
-- UI communicates:
-  - offline safety message
-  - sync in progress / pending counts
-  - sync complete toast
-
-### Realtime and Notifications
-- Supabase Realtime channels watch workspace `entries` and `delete_requests`.
-- App refreshes workspace data on changes.
-- Optional system notifications for new entries when permissions are granted.
-
-## Database and Supabase Details
-
-### Main Tables
-- `profiles`
-- `workspaces`
-- `workspace_members`
-- `categories`
-- `entries`
-- `delete_requests`
-- `audit_logs`
-
-### Key RPC / DB Functions Used by App
-- `create_workspace_with_owner`
-- `list_workspace_members`
-- `add_workspace_member_by_contact`
-- `can_delete_entries`
-- permission helpers:
-  - `is_workspace_member`
-  - `is_workspace_admin`
-  - `can_manage_users`
-  - `can_manage_categories`
-
-### Important Triggers
-- `handle_new_user` on `auth.users`
-- `normalize_member_permissions` on `workspace_members`
-- `enforce_entry_rules` on `entries`
-- `handle_delete_request_review` on `delete_requests`
-- `set_updated_at` on core tables
-
-### RLS
-RLS is enabled on business tables and policies enforce membership/permission checks for select/insert/update/delete paths.
-
-## Project Structure (High Level)
-- `src/App.tsx`: app orchestration, workspace bootstrap, quick add, realtime, notifications
-- `src/pages/`: Auth, Dashboard, History, Team, Onboarding, Profile Setup
-- `src/services/`: Supabase data access per domain
-- `src/lib/`: formatters, supabase client, offline queue
-- `src/components/`: reusable UI blocks and layout
-- `public/sw.js`: service worker
-- `supabase/migrations/`: schema and function migrations
+## Repository Structure
+- `src/App.tsx`: orchestration, bootstrap, realtime, modal, shell-level state
+- `src/pages/`: screen-level flows (Auth, Dashboard, History, Team, Onboarding, Profile Setup, Invite Inbox)
+- `src/services/`: Supabase operations by domain
+- `src/lib/`: helpers (`supabase`, `offlineQueue`, `format`)
+- `src/components/`: reusable UI and layout
+- `supabase/migrations/`: schema + RPC migrations
+- `public/`: manifest, icons, service worker, brand assets
 
 ## Environment Variables
 Defined in `.env.example`:
@@ -303,84 +184,124 @@ VITE_AI_CATEGORIES_ENDPOINT=
 ```
 
 ## Local Setup
-
 1. Install dependencies:
 ```bash
 npm install
 ```
-
-2. Create env file:
+2. Copy env file:
 ```bash
 cp .env.example .env
 ```
-
-3. Fill `.env` values.
-
-4. Run development server:
+3. Fill environment values.
+4. Run dev server:
 ```bash
 npm run dev
 ```
-
-5. Type check:
+5. Validate type safety:
 ```bash
 npm run check
 ```
-
-6. Production build:
+6. Build production bundle:
 ```bash
 npm run build
 ```
 
-7. Preview build:
-```bash
-npm run preview
+## Supabase Setup (Required)
+Run migrations in this exact order:
+1. `202602180001_init_cashbook.sql`
+2. `202602180002_profile_trigger.sql`
+3. `202602180003_storage_receipts.sql`
+4. `202602180004_member_management.sql`
+5. `202602180005_profile_metadata_sync.sql`
+6. `202602200001_account_deletion_flow.sql`
+7. `202602200002_workspace_access_requests.sql`
+8. `202602200003_member_access_controls.sql`
+
+After running migrations, refresh schema cache:
+```sql
+notify pgrst, 'reload schema';
 ```
 
-## Supabase Setup (Required)
+## Known Compatibility Modes
+If latest migrations are not applied, app has fallback behavior for:
+- account deletion request/confirm
+- workspace member revoke
+- workspace access grant flow (legacy direct grant)
 
-1. Create a Supabase project.
-2. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to `.env`.
-3. Run migrations from `supabase/migrations` in order:
-   - `202602180001_init_cashbook.sql`
-   - `202602180002_profile_trigger.sql`
-   - `202602180003_storage_receipts.sql`
-   - `202602180004_member_management.sql`
-   - `202602180005_profile_metadata_sync.sql`
-   - `202602200001_account_deletion_flow.sql`
-4. Ensure Storage bucket `receipts` exists (migration includes it).
-5. Enable Google provider in Supabase Auth if Google sign-in is required.
+Temporary member suspension requires migration `202602200003_member_access_controls.sql` and `workspace_members.access_disabled` column.
 
-## Branding Assets
-- Main brand logo path:
-  - `public/brand/cashbook-logo.png`
-- Notes file:
-  - `public/brand/README.txt`
+## Deployment Runbook (Vercel)
+
+### First-time setup
+1. Install Vercel CLI:
+```bash
+npm i -g vercel
+```
+2. Login:
+```bash
+vercel login
+```
+3. Link project from repo root:
+```bash
+vercel
+```
+
+### Production deploy
+```bash
+vercel --prod
+```
+
+### Required Vercel environment variables
+Set in Vercel Project Settings:
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+- `VITE_DEFAULT_CURRENCY` (optional)
+- `VITE_AI_CATEGORIES_ENDPOINT` (optional)
+
+### Production URL
+- `https://cashbook-pwa.vercel.app/`
+
+## Release Checklist
+Before every push/deploy:
+1. `npm run check`
+2. `npm run build`
+3. Verify login, entry create, history filters, export, and team access actions
+4. If team/permission code changed, verify related migrations are applied in target Supabase project
 
 ## Troubleshooting
 
-### App shows setup screen
-- Missing `VITE_SUPABASE_URL` or `VITE_SUPABASE_ANON_KEY`.
+### Error: missing RPC / schema cache
+- Cause: migration not applied or schema cache stale
+- Fix: run missing migration, then execute:
+```sql
+notify pgrst, 'reload schema';
+```
 
-### Member RPC errors (schema cache / missing function)
-- Verify all migrations were applied to the same Supabase project.
+### Temporary disable unavailable message
+- Cause: `workspace_members.access_disabled` not present
+- Fix: run `202602200003_member_access_controls.sql`
 
-### No entries visible for a different user
-- Check workspace membership and selected workspace context.
+### Localhost refused connection
+- Cause: dev server not running
+- Fix:
+```bash
+npm run dev
+```
 
-### Export shows no rows
-- Ensure active filters actually return rows and custom date range is complete.
+### App stuck on boot screen repeatedly
+- Check auth session loops and Supabase connectivity
+- Confirm environment keys are correct
 
-### Notification issues
-- Confirm browser permission is granted.
-- On some mobile/browser combos, background behavior is platform-restricted.
+### Member not visible / wrong member data
+- Verify active workspace membership rows
+- Verify current user and workspace context
 
-## Security and Data Notes
-- This app is client-first with Supabase RLS as primary enforcement.
-- Never expose Supabase `service_role` key in frontend code.
-- Anon key is expected in browser; secure access depends on RLS and policies.
+## Security Notes
+- Do not place Supabase `service_role` key in frontend
+- RLS is the primary security boundary
+- UI checks improve UX; DB checks enforce policy
 
-## Scripts
-- `npm run dev`: start local dev server
-- `npm run check`: TypeScript checks
-- `npm run build`: production build
-- `npm run preview`: preview production build
+## Related Docs
+- `ARCHITECTURE.md`
+- `TODO.md`
+- `supabase/migrations/`

@@ -24,6 +24,8 @@ interface TeamPageProps {
     allowDeleteForEditor: boolean,
     allowManageCategoriesForEditor: boolean
   ) => Promise<void>;
+  onSetMemberAccessDisabled: (targetUserId: string, disabled: boolean) => Promise<void>;
+  temporaryAccessAvailable: boolean;
   onRevokeMember: (targetUserId: string) => Promise<void>;
   onUpdateTimezone: (timezone: string) => Promise<void>;
   onRequestDeleteAccount: () => Promise<void>;
@@ -39,6 +41,8 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
     currentUserProfile,
     onGrantAccess,
     onUpdateMember,
+    onSetMemberAccessDisabled,
+    temporaryAccessAvailable,
     onRevokeMember,
     onUpdateTimezone,
     onRequestDeleteAccount,
@@ -59,6 +63,8 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
+  const normalizePhone = (value: string): string => value.replace(/[^\d+]/g, "");
+
   const readMessage = (err: unknown, fallback: string): string => {
     if (err instanceof Error && err.message) {
       return err.message;
@@ -70,15 +76,21 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
   };
 
   const grantErrorMessage = (err: unknown, requestedContact: string): string => {
-    const message = readMessage(err, "Could not grant access.");
+    const message = readMessage(err, "Could not send access request.");
     if (message.toLowerCase().includes("not registered")) {
-      return `${requestedContact} is not registered yet. Ask them to sign up first, then grant access.`;
+      return `${requestedContact} is not registered yet. Ask them to sign up first, then send the request again.`;
     }
     return message;
   };
 
-  const canManageUsers = member.role === "admin" || member.can_manage_users;
+  const canManageUsers = member.role === "admin";
   const canEditTimezone = member.role === "admin";
+  const accessSummary =
+    member.role === "admin"
+      ? "Role: Admin (Full access)"
+      : `Role: Editor (Delete entries: ${member.can_delete_entries ? "Yes" : "No"}, Manage categories: ${
+          member.can_manage_categories ? "Yes" : "No"
+        }, Manage users: ${member.can_manage_users ? "Yes" : "No"}, Dashboard: ${member.dashboard_scope})`;
   const displayName = currentUserProfile.fullName || currentUserProfile.email || "User";
   const initials = displayName
     .split(" ")
@@ -144,11 +156,29 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
       setError("Enter an email or phone number.");
       return;
     }
+
+    if (contactType === "email") {
+      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailPattern.test(value)) {
+        setError("Enter a valid email address.");
+        return;
+      }
+    } else {
+      const digitsOnly = value.replace(/\D/g, "");
+      if (digitsOnly.length < 6) {
+        setError("Enter a valid mobile number.");
+        return;
+      }
+    }
+
     const normalizedValue = value.toLowerCase();
     const alreadyMember = members.some(
-      (item) =>
-        (item.email && item.email.toLowerCase() === normalizedValue) ||
-        (item.phone && item.phone.replace(/\s+/g, "") === value.replace(/\s+/g, ""))
+      (item) => {
+        if (contactType === "email") {
+          return Boolean(item.email && item.email.toLowerCase() === normalizedValue);
+        }
+        return Boolean(item.phone && normalizePhone(item.phone) === normalizePhone(value));
+      }
     );
     if (alreadyMember) {
       setError(`${value} already has workspace access. Use Team Members to change permissions.`);
@@ -187,13 +217,32 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
     }
   };
 
-  const revoke = async (targetUserId: string) => {
+  const toggleTemporaryAccess = async (targetUserId: string, disabled: boolean) => {
+    setEditingUserId(targetUserId);
+    setError("");
+    try {
+      await onSetMemberAccessDisabled(targetUserId, disabled);
+    } catch (err) {
+      setError(readMessage(err, "Could not update workspace access state."));
+    } finally {
+      setEditingUserId("");
+    }
+  };
+
+  const revoke = async (targetUserId: string, label: string) => {
+    const ok = window.confirm(
+      `This will permanently revoke ${label}'s workspace access. They will be removed from this workspace. Continue?`
+    );
+    if (!ok) {
+      return;
+    }
+
     setEditingUserId(targetUserId);
     setError("");
     try {
       await onRevokeMember(targetUserId);
     } catch (err) {
-      setError(readMessage(err, "Could not revoke access."));
+      setError(readMessage(err, "Could not permanently revoke access."));
     } finally {
       setEditingUserId("");
     }
@@ -308,7 +357,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                 <small>This action removes your access from workspaces. Archived records are retained for audit.</small>
               </div>
               <small className="danger-text">
-                Are you sure you want to delete your account? You will lose app access and will need to register again.
+                Are you sure you want to delete your account? You will lose app access and can sign in again later to start fresh.
               </small>
               <small className="danger-text">A confirmation link will be sent to your registered email.</small>
               <label htmlFor="delete-confirm-input">Type DELETE to confirm</label>
@@ -340,24 +389,19 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
         </div>
       </NeonCard>
 
-      <NeonCard title="Your Access" subtitle={`Role: ${member.role}`}>
-        <ul className="plain-list">
-          <li>Can delete entries: {member.can_delete_entries ? "Yes" : "No"}</li>
-          <li>Can manage categories: {member.can_manage_categories ? "Yes" : "No"}</li>
-          <li>Can manage users: {member.can_manage_users ? "Yes" : "No"}</li>
-          <li>Dashboard scope: {member.dashboard_scope}</li>
-        </ul>
+      <NeonCard title="Your Access">
+        <p>{accessSummary}</p>
       </NeonCard>
 
       {canManageUsers && (
         <NeonCard
           title="Access Management"
-          subtitle="User must sign up first, then grant access by email or phone"
+          subtitle="Admin sends request first. User must confirm before getting workspace access."
         >
           <form className="stack" onSubmit={grant}>
             <div className="access-alert">
               <strong>Security-sensitive area</strong>
-              <small>Grant only to verified staff accounts. User must already be registered.</small>
+              <small>Send requests only to verified staff accounts. User must already be registered.</small>
             </div>
 
             <div className="grant-grid">
@@ -458,7 +502,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
             {error && <small className="error-text">{error}</small>}
 
             <button className="primary-btn" type="submit" disabled={saving}>
-              {saving ? "Granting..." : "Grant Access"}
+              {saving ? "Sending request..." : "Send Access Request"}
             </button>
           </form>
         </NeonCard>
@@ -482,6 +526,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                     <small>
                       Role: {item.role} {item.role === "editor" ? `| Delete: ${item.can_delete_entries ? "Yes" : "No"}` : ""}
                     </small>
+                    <small>Workspace access: {item.access_disabled ? "Temporarily disabled" : "Active"}</small>
                     <div className="member-badges">
                       <span className={`category-type-badge ${item.role === "admin" ? "category-type-expense" : "category-type-income"}`.trim()}>
                         {item.role === "admin" ? "Admin" : "Editor"}
@@ -543,22 +588,37 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                       </label>
                     )}
 
-                    {!isSelf && (
+                    {!isSelf && temporaryAccessAvailable && (
                       <label className="switch-row switch-row-action" htmlFor={`toggle-access-${item.user_id}`}>
                         <input
                           className="toggle-input"
                           id={`toggle-access-${item.user_id}`}
                           type="checkbox"
-                          checked
+                          checked={!item.access_disabled}
                           disabled={busy}
                           onChange={(event) => {
-                            if (!event.target.checked) {
-                              void revoke(item.user_id);
-                            }
+                            void toggleTemporaryAccess(item.user_id, !event.target.checked);
                           }}
                         />
-                        Workspace access
+                        Workspace access (temporary)
                       </label>
+                    )}
+
+                    {!isSelf && !temporaryAccessAvailable && (
+                      <small className="muted">Temporary disable unavailable until database upgrade.</small>
+                    )}
+
+                    {!isSelf && (
+                      <button
+                        className="danger-btn danger-btn-compact"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          void revoke(item.user_id, displayName);
+                        }}
+                      >
+                        Revoke permanently
+                      </button>
                     )}
                   </div>
                 </article>

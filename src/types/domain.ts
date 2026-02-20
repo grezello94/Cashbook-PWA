@@ -23,6 +23,7 @@ export interface WorkspaceMember {
   can_manage_categories: boolean;
   can_manage_users: boolean;
   dashboard_scope: DashboardScope;
+  access_disabled: boolean;
 }
 
 export interface WorkspaceMemberDirectory extends WorkspaceMember {
@@ -72,6 +73,23 @@ export interface DeleteRequest {
 export interface WorkspaceContext {
   workspace: Workspace;
   member: WorkspaceMember;
+}
+
+export interface WorkspaceAccessRequest {
+  id: string;
+  workspace_id: string;
+  workspace_name: string;
+  workspace_industry: string;
+  workspace_currency: string;
+  workspace_timezone: string;
+  requested_by: string;
+  requested_by_name: string | null;
+  requested_by_email: string | null;
+  role: AppRole;
+  can_delete_entries: boolean;
+  can_manage_categories: boolean;
+  status: "pending" | "accepted" | "rejected" | "cancelled";
+  requested_at: string;
 }
 
 export interface CreateWorkspaceInput {
