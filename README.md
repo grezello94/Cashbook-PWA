@@ -2,6 +2,23 @@
 
 Cashbook PWA is a mobile-first Progressive Web App for day-to-day cash tracking with workspace-based access control, realtime updates, timezone-aware entries, offline queueing, and export-ready reporting.
 
+## Project Rules
+- Keep app **mobile-first**. Any new UI must be tested for small screens first.
+- Preserve existing visual language unless a change is explicitly requested.
+- Do not relax RBAC checks in UI or backend policies.
+- Respect category direction rules:
+  - `cash_in` -> `income` category
+  - `cash_out` -> `expense` category
+- Keep timezone-aware behavior intact for create/read flows.
+- Never store secrets in client code or committed files.
+- Keep offline queue reliable:
+  - failed sync items must stay queued
+  - user must see clear offline/sync status
+- Prefer additive migrations; do not silently break old SQL/RPC behavior.
+- Run before shipping:
+  - `npm run check`
+  - `npm run build`
+
 ## Author
 - Coded by **Grezello Kingsly Fernandes**
 
@@ -20,6 +37,37 @@ Cashbook PWA is a mobile-first Progressive Web App for day-to-day cash tracking 
 - Backend: Supabase (Auth, Postgres, RLS, Storage, Realtime, RPC)
 - Styling: Custom CSS (+ Tailwind configured in project)
 - Build: `tsc` + `vite`
+
+## Theme and Color System
+Core design tokens are defined in `src/styles.css` under `:root`.
+
+- Backgrounds:
+  - `--bg: #eef3fb`
+  - `--bg-soft: #ffffff`
+  - `--card: rgba(255, 255, 255, 0.9)`
+- Text:
+  - `--text: #0b172e`
+  - `--muted: #4d617f`
+- Brand / actions:
+  - `--blue: #1f5eff`
+  - `--blue-dark: #143eb5`
+  - `--blue-soft: #e3edff`
+- Semantic indicators:
+  - `--green: #0f9d58` (income / positive state)
+  - `--red: #e11d48` (expense / warning / destructive)
+- Borders and elevation:
+  - `--border: rgba(30, 64, 175, 0.18)`
+  - `--shadow-soft`, `--shadow-card`
+- Shape and spacing:
+  - `--radius-md`, `--radius-lg`, `--radius-xl`
+  - `--safe-top`, `--safe-bottom` for mobile safe-area insets
+
+### Visual Semantics
+- `Cash In` and positive net use green cues.
+- `Cash Out` and negative net use red cues.
+- Interactive primary actions use blue gradient.
+- Destructive actions use red styles and extra warnings.
+- App is tuned for mobile-first spacing and touch targets.
 
 ## Platforms and Browser Targets
 - Mobile first: Android and iOS browsers
@@ -131,6 +179,77 @@ Cashbook PWA is a mobile-first Progressive Web App for day-to-day cash tracking 
 ### 12. Stability Hardening
 - Global React error boundary prevents blank-screen failures and offers reload.
 - Defensive formatting guards for date/time parsing and timezone fallback.
+
+## End-to-End App Working (Runtime Flow)
+
+### Boot Flow
+1. Load env config and Supabase client.
+2. Get auth session.
+3. If no session -> show Auth page.
+4. If session exists:
+   - check profile completeness
+   - if incomplete -> Profile Setup
+   - else resolve workspace context
+5. If no workspace yet -> Onboarding
+6. Else -> AppShell with Dashboard / History / Team
+
+### Auth Flow
+- Email/password:
+  - `signUpWithEmail` stores profile fields in user metadata.
+  - existing-email guard prevents duplicate sign-up confusion.
+- Google OAuth:
+  - starts OAuth with `redirectTo: window.location.origin`.
+- First successful signup/login can trigger one-time branded welcome modal.
+
+### Onboarding Flow
+1. User enters workspace basics (`name`, `industry`, `currency`, `timezone`).
+2. Optional niche description generates AI categories.
+3. App creates workspace + owner membership.
+4. Seeds industry defaults + AI-generated categories.
+5. Loads workspace context and enters dashboard.
+
+### Entry Flow (Cash In / Cash Out)
+1. Quick entry modal captures amount, category, date/time, remarks, optional receipt.
+2. Direction enforces matching category type.
+3. If online:
+   - writes directly to Supabase.
+4. If offline:
+   - saves payload in local queue and shows queued state.
+5. On reconnect:
+   - queue auto-sync retries until empty.
+
+### Team Flow
+- Admin can:
+  - grant/revoke workspace access
+  - promote/demote role
+  - toggle delete/category management permissions
+- Editor access is constrained by flags and RLS.
+
+### Delete Flow
+- User with delete permission: direct soft delete.
+- User without delete permission: request delete.
+- Admin review decides approved/rejected.
+- Approved request auto-applies delete in DB logic.
+
+### History Flow
+- Date preset + optional custom range + category filter.
+- Shows filtered list + totals (cash in/out/net).
+- Export uses current filters to generate Excel/PDF outputs.
+
+### Offline and Sync Guarantees
+- Queue storage key: `cashbook.offline.queue.v1`
+- Offline entries are persisted in browser local storage.
+- Failed sync attempts keep remaining queue items.
+- Sync retries run automatically while online.
+- UI communicates:
+  - offline safety message
+  - sync in progress / pending counts
+  - sync complete toast
+
+### Realtime and Notifications
+- Supabase Realtime channels watch workspace `entries` and `delete_requests`.
+- App refreshes workspace data on changes.
+- Optional system notifications for new entries when permissions are granted.
 
 ## Database and Supabase Details
 
