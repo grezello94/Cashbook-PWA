@@ -51,6 +51,7 @@ const defaultCurrency = (import.meta.env.VITE_DEFAULT_CURRENCY || localeDefaultC
 const LAST_WORKSPACE_KEY = "cashbook:last-workspace-id";
 const WELCOME_PENDING_EMAIL_KEY = "cashbook:welcome-pending-email";
 const WELCOME_SHOWN_USER_KEY_PREFIX = "cashbook:welcome-shown:";
+type WorkspaceEntryMode = "decide" | "create";
 
 function readError(error: unknown): string {
   if (error instanceof Error && error.message) {
@@ -119,6 +120,7 @@ export default function App(): JSX.Element {
   const [teamLoadError, setTeamLoadError] = useState("");
   const [pendingAccessRequests, setPendingAccessRequests] = useState<WorkspaceAccessRequest[]>([]);
   const [respondingAccessRequestId, setRespondingAccessRequestId] = useState("");
+  const [workspaceEntryMode, setWorkspaceEntryMode] = useState<WorkspaceEntryMode>("decide");
   const [temporaryAccessAvailable, setTemporaryAccessAvailable] = useState(true);
   const [tab, setTab] = useState<AppTab>("dashboard");
   const [message, setMessage] = useState<string>("");
@@ -166,6 +168,7 @@ export default function App(): JSX.Element {
     setTeamLoadError("");
     setPendingAccessRequests([]);
     setRespondingAccessRequestId("");
+    setWorkspaceEntryMode("decide");
     setProfileNameSeed("");
     setProfilePhoneSeed("");
   }, [userId]);
@@ -476,6 +479,7 @@ export default function App(): JSX.Element {
       setTeamLoadError("");
       setPendingAccessRequests([]);
       setRespondingAccessRequestId("");
+      setWorkspaceEntryMode("decide");
       setTemporaryAccessAvailable(true);
       setQueueCount(queueSize());
       setSyncingQueue(false);
@@ -963,6 +967,9 @@ export default function App(): JSX.Element {
     try {
       await respondWorkspaceAccessRequest(requestId, decision);
       await Promise.all([refreshAccessRequests(), bootstrapWorkspace(userId)]);
+      if (decision === "accept") {
+        setWorkspaceEntryMode("decide");
+      }
       notify(decision === "accept" ? "Access request accepted." : "Access request rejected.");
     } catch (error) {
       notify(readError(error));
@@ -1139,13 +1146,13 @@ export default function App(): JSX.Element {
   }
 
   if (!context) {
-    if (pendingAccessRequests.length > 0) {
+    if (workspaceEntryMode === "decide") {
       return (
         <InviteInboxPage
           invites={pendingAccessRequests}
           respondingId={respondingAccessRequestId}
           onRespond={respondAccessRequest}
-          onGoOnboarding={() => setPendingAccessRequests([])}
+          onCreateWorkspace={() => setWorkspaceEntryMode("create")}
         />
       );
     }
@@ -1156,6 +1163,7 @@ export default function App(): JSX.Element {
         loading={loading}
         onGenerateAICategories={generateAICategories}
         onCreateWorkspace={createWorkspace}
+        onBackToJoin={() => setWorkspaceEntryMode("decide")}
       />
     );
   }

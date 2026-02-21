@@ -9,10 +9,11 @@ interface OnboardingPageProps {
   loading: boolean;
   onGenerateAICategories: (prompt: string, industry: string) => Promise<AICategorySuggestion[]>;
   onCreateWorkspace: (input: CreateWorkspaceInput, aiCategories: AICategorySuggestion[]) => Promise<void>;
+  onBackToJoin?: () => void;
 }
 
 export function OnboardingPage(props: OnboardingPageProps): JSX.Element {
-  const { defaultCurrency, loading, onGenerateAICategories, onCreateWorkspace } = props;
+  const { defaultCurrency, loading, onGenerateAICategories, onCreateWorkspace, onBackToJoin } = props;
   const [name, setName] = useState("");
   const [industry, setIndustry] = useState<string>(industries[0]);
   const [currency, setCurrency] = useState(defaultCurrency);
@@ -109,6 +110,12 @@ export function OnboardingPage(props: OnboardingPageProps): JSX.Element {
           <button className="primary-btn" type="submit" disabled={loading}>
             {loading ? "Creating..." : "Create Workspace"}
           </button>
+
+          {onBackToJoin && (
+            <button className="ghost-btn" type="button" onClick={onBackToJoin} disabled={loading || generating}>
+              Join Existing Workspace Instead
+            </button>
+          )}
         </form>
       </NeonCard>
     </div>

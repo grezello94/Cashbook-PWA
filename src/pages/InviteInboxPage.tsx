@@ -5,16 +5,21 @@ interface InviteInboxPageProps {
   invites: WorkspaceAccessRequest[];
   respondingId: string;
   onRespond: (requestId: string, decision: "accept" | "reject") => Promise<void>;
-  onGoOnboarding: () => void;
+  onCreateWorkspace: () => void;
 }
 
 export function InviteInboxPage(props: InviteInboxPageProps): JSX.Element {
-  const { invites, respondingId, onRespond, onGoOnboarding } = props;
+  const { invites, respondingId, onRespond, onCreateWorkspace } = props;
 
   return (
     <div className="center-layout">
-      <NeonCard className="max-w-xl" title="Workspace Access Requests" subtitle="Accept or reject requests from admins">
+      <NeonCard
+        className="max-w-xl"
+        title="Join or Create Workspace"
+        subtitle="Accept an admin request to join, or create your own workspace"
+      >
         <div className="stack">
+          {!!invites.length && <p className="muted">Pending invites from admins</p>}
           {invites.map((invite) => {
             const busy = respondingId === invite.id;
             const requester = invite.requested_by_name || invite.requested_by_email || "Workspace admin";
@@ -61,12 +66,15 @@ export function InviteInboxPage(props: InviteInboxPageProps): JSX.Element {
 
           {!invites.length && (
             <>
-              <p className="muted">No pending access requests.</p>
-              <button className="primary-btn" type="button" onClick={onGoOnboarding}>
-                Continue to Workspace Setup
-              </button>
+              <p className="muted">
+                No pending access requests right now. Ask your admin to add your email/phone, or create your own workspace.
+              </p>
             </>
           )}
+
+          <button className="primary-btn" type="button" onClick={onCreateWorkspace}>
+            Create My Workspace
+          </button>
         </div>
       </NeonCard>
     </div>

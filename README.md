@@ -217,6 +217,7 @@ Run migrations in this exact order:
 7. `202602200002_workspace_access_requests.sql`
 8. `202602200003_member_access_controls.sql`
 9. `202602200004_fix_list_workspace_members_type_mismatch.sql`
+10. `202602200005_harden_workspace_access_requests.sql`
 
 After running migrations, refresh schema cache:
 ```sql
