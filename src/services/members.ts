@@ -73,7 +73,7 @@ export async function grantMemberAccessByContact(
   role: AppRole,
   allowDeleteForEditor: boolean,
   allowManageCategoriesForEditor: boolean
-): Promise<"requested" | "granted_legacy"> {
+): Promise<void> {
   const sb = requireSupabase();
   const { error } = await sb.rpc("request_workspace_access_by_contact", {
     _workspace_id: workspaceId,
@@ -84,7 +84,7 @@ export async function grantMemberAccessByContact(
   });
 
   if (!error) {
-    return "requested";
+    return;
   }
 
   const message = readErrorMessage(error).toLowerCase();
@@ -93,35 +93,9 @@ export async function grantMemberAccessByContact(
     message.includes("schema cache");
 
   if (missingRpc) {
-    const { data: fallbackTargetUserId, error: fallbackError } = await sb.rpc("add_workspace_member_by_contact", {
-      _workspace_id: workspaceId,
-      _contact: contact,
-      _role: role,
-      _can_delete_entries: role === "admin" ? true : allowDeleteForEditor
-    });
-
-    if (fallbackError) {
-      throw fallbackError;
-    }
-
-    if (role === "editor") {
-      const { error: adjustError } = await sb
-        .from("workspace_members")
-        .update({
-          can_delete_entries: allowDeleteForEditor,
-          can_manage_categories: allowManageCategoriesForEditor,
-          can_manage_users: false,
-          dashboard_scope: "shift"
-        })
-        .eq("workspace_id", workspaceId)
-        .eq("user_id", fallbackTargetUserId as string);
-
-      if (adjustError) {
-        throw adjustError;
-      }
-    }
-
-    return "granted_legacy";
+    throw new Error(
+      "Secure invite workflow is not enabled in this database yet. Run latest Supabase migrations and reload schema."
+    );
   }
 
   throw error;

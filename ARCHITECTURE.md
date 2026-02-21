@@ -60,11 +60,13 @@ This document explains the full architecture of Cashbook PWA so future developme
 5. Save online directly, or enqueue offline.
 
 ### Team Access Flow
-1. Admin creates access request by contact.
-2. Target user sees pending invites in inbox.
-3. Target user accepts/rejects.
-4. Membership is created only on acceptance.
-5. Admin can adjust role/permissions later.
+1. User without workspace lands on `Join or Create` gate.
+2. `Join Workspace` opens a waiting-room view (requests only, no workspace data/actions).
+3. Admin creates access request by contact.
+4. Target user sees pending request links in waiting-room view.
+5. Target user accepts/rejects.
+6. Membership is created only on acceptance.
+7. Admin can adjust role/permissions later.
 
 ### Temporary Disable Flow
 1. Admin toggles workspace access off.
@@ -111,7 +113,7 @@ This document explains the full architecture of Cashbook PWA so future developme
 - `respond_workspace_access_request`
 - `set_workspace_member_access_disabled`
 - `remove_workspace_member`
-- Legacy fallback: `add_workspace_member_by_contact`
+- Legacy direct grant RPC exists for history only; execute is revoked from client roles in strict mode
 
 ### Account Deletion
 - `request_account_deletion`
@@ -139,14 +141,18 @@ This document explains the full architecture of Cashbook PWA so future developme
 
 ## 9. Compatibility Strategy
 The app explicitly handles older DB states to prevent blank failures:
-- Missing access-request RPC -> legacy direct grant fallback
 - Missing remove-member RPC -> direct delete fallback
 - Missing account deletion RPC -> metadata fallback
 - Missing `access_disabled` column -> temporary toggle hidden
 
+Strict access mode:
+- No client-side fallback to direct member grant
+- Workspace access is obtained only by accepted request
+
 ## 10. Non-Negotiable Invariants
 - Mobile-first usability must remain intact
 - RLS and DB permission checks must not be bypassed
+- Direct member grant bypass from client roles must remain blocked
 - Direction/category consistency must be preserved
 - Offline queue must not drop unsynced data silently
 - Timezone-aware behavior must remain workspace-driven
@@ -169,6 +175,8 @@ The app explicitly handles older DB states to prevent blank failures:
 Latest features require migration order from `README.md`.
 Critical current dependency:
 - `202602200003_member_access_controls.sql` for temporary disable (`access_disabled`).
+- `202602210001_enforce_workspace_request_only_flow.sql` for strict request-only onboarding.
+- `202602210002_revoke_public_execute_legacy_member_grant.sql` to revoke legacy direct-grant execute privileges.
 
 ## 14. Quality Gates
 Before merge/release:

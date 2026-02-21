@@ -51,7 +51,7 @@ const defaultCurrency = (import.meta.env.VITE_DEFAULT_CURRENCY || localeDefaultC
 const LAST_WORKSPACE_KEY = "cashbook:last-workspace-id";
 const WELCOME_PENDING_EMAIL_KEY = "cashbook:welcome-pending-email";
 const WELCOME_SHOWN_USER_KEY_PREFIX = "cashbook:welcome-shown:";
-type WorkspaceEntryMode = "decide" | "create";
+type WorkspaceEntryMode = "decide" | "join" | "create";
 
 function readError(error: unknown): string {
   if (error instanceof Error && error.message) {
@@ -411,20 +411,32 @@ export default function App(): JSX.Element {
     setTemporaryAccessAvailable(true);
   }, []);
 
-  const refreshAccessRequests = useCallback(async () => {
+  const refreshAccessRequests = useCallback(async (): Promise<WorkspaceAccessRequest[]> => {
     try {
       const requests = await listMyWorkspaceAccessRequests();
       setPendingAccessRequests(requests);
+      return requests;
     } catch (error) {
       const message = readError(error).toLowerCase();
       if (message.includes("list_my_workspace_access_requests")) {
         // Backward compatibility if migrations are not applied yet.
         setPendingAccessRequests([]);
-        return;
+        return [];
       }
       throw error;
     }
   }, []);
+
+  const openJoinWorkspace = async (): Promise<number> => {
+    try {
+      setWorkspaceEntryMode("join");
+      const requests = await refreshAccessRequests();
+      return requests.length;
+    } catch (error) {
+      notify(readError(error));
+      throw error;
+    }
+  };
 
   const bootstrapWorkspace = useCallback(
     async (uid: string) => {
@@ -603,6 +615,49 @@ export default function App(): JSX.Element {
       window.localStorage.removeItem(WELCOME_PENDING_EMAIL_KEY);
     }
   }, [session, profileNameSeed]);
+
+  useEffect(() => {
+    const sb = supabase;
+    if (!sb || !userId) {
+      return;
+    }
+
+    const channel = (sb
+      .channel(`workspace-access-requests-${userId}`) as any)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "workspace_access_requests",
+          filter: `target_user_id=eq.${userId}`
+        },
+        (payload: {
+          eventType: string;
+          new?: { status?: string };
+        }) => {
+          const nextStatus = payload.new?.status ?? "";
+          void refreshAccessRequests();
+
+          if (payload.eventType === "INSERT" && nextStatus === "pending") {
+            setWorkspaceEntryMode("join");
+            setMessage("New workspace access request received.");
+            if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+              navigator.vibrate(120);
+            }
+          }
+
+          if (payload.eventType === "UPDATE" && nextStatus === "accepted") {
+            void bootstrapWorkspace(userId);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void sb.removeChannel(channel);
+    };
+  }, [userId, refreshAccessRequests, bootstrapWorkspace]);
 
   useEffect(() => {
     if (!workspaceId || !userId) {
@@ -892,22 +947,10 @@ export default function App(): JSX.Element {
       return;
     }
 
-    const grantMode = await grantMemberAccessByContact(
-      workspaceId,
-      contact,
-      role,
-      allowDeleteForEditor,
-      allowManageCategoriesForEditor
-    );
+    await grantMemberAccessByContact(workspaceId, contact, role, allowDeleteForEditor, allowManageCategoriesForEditor);
     const refreshed = await listWorkspaceMembers(workspaceId);
     setTeamMembers(refreshed);
-
-    if (grantMode === "requested") {
-      notify("Access request sent. User must confirm before getting workspace access.");
-      return;
-    }
-
-    notify("Access granted directly (legacy DB mode). Run latest migration to enable confirmation workflow.");
+    notify("Access request sent. User must confirm before getting workspace access.");
   };
 
   const updateMemberRole = async (
@@ -1064,7 +1107,8 @@ export default function App(): JSX.Element {
       setProfileNameSeed(input.fullName);
       setProfilePhoneSeed(input.phone);
       setOnboardingCurrency(input.currency.toUpperCase());
-      await bootstrapWorkspace(userId);
+      await Promise.all([bootstrapWorkspace(userId), refreshAccessRequests(), detectTemporaryAccessAvailability()]);
+      setWorkspaceEntryMode("decide");
       notify("Profile saved");
     } catch (error) {
       notify(readError(error));
@@ -1146,12 +1190,15 @@ export default function App(): JSX.Element {
   }
 
   if (!context) {
-    if (workspaceEntryMode === "decide") {
+    if (workspaceEntryMode === "decide" || workspaceEntryMode === "join") {
       return (
         <InviteInboxPage
+          mode={workspaceEntryMode === "join" ? "join" : "decide"}
           invites={pendingAccessRequests}
           respondingId={respondingAccessRequestId}
           onRespond={respondAccessRequest}
+          onJoinWorkspace={openJoinWorkspace}
+          onBackToDecide={() => setWorkspaceEntryMode("decide")}
           onCreateWorkspace={() => setWorkspaceEntryMode("create")}
         />
       );

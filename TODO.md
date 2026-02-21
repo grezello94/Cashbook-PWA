@@ -13,6 +13,12 @@ This roadmap is designed so future AI sessions can pick work in priority order w
 - [ ] Add smoke-test script for core production flows after each deploy.
 
 ## P1 - High (Access and Team)
+- [ ] Add admin-side pending invite panel:
+  - list open requests by user/contact
+  - show requested role/permissions
+  - allow cancel/re-send
+- [ ] Add optional invite expiration (`expires_at`) and automatic expiry handling.
+- [ ] Add explicit “request delivered / waiting for user action” state for admin after sending invite.
 - [ ] Add scheduled temporary disable:
   - `disabled_until` datetime
   - `disable_reason` text
@@ -67,6 +73,8 @@ This roadmap is designed so future AI sessions can pick work in priority order w
 ## Done Recently
 - [x] Access request confirmation workflow (admin request -> user accept/reject).
 - [x] Invite inbox page for pending access requests.
+- [x] Strict request-only access onboarding (direct client grant bypass blocked).
+- [x] Join waiting-room mode before workspace access (no data/actions before acceptance).
 - [x] Temporary access disable toggle with DB capability detection.
 - [x] Permanent revoke confirmation UX.
 - [x] Account deletion fallback flow for missing RPC migration.

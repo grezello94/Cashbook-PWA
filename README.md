@@ -17,6 +17,7 @@ This app currently supports:
 - Category management with type safety (`income` and `expense`)
 - Team access controls (admin/editor)
 - Access request + user confirmation workflow
+- Join waiting-room flow before workspace entry
 - Temporary member suspension (when DB migration is enabled)
 - Permanent member revoke
 - Account deletion confirmation workflow
@@ -90,8 +91,11 @@ This app currently supports:
 ### 9. Access Request Confirmation Flow
 - Admin sends access request by email/phone
 - Target user must accept/reject request
-- Invite inbox page shown when user has pending requests and no active workspace
-- Legacy fallback path exists for older DB schema (direct grant mode)
+- User sees a two-step entry gate when no workspace is active:
+  - `Join Workspace` -> waiting-room view (request links only)
+  - `Create Your Own Workspace` -> onboarding flow
+- Until request acceptance, user cannot access workspace shell/data/actions
+- Direct member grant bypass is blocked in strict mode (request + accept is required)
 
 ### 10. Temporary Access Disable
 - Admin can temporarily disable workspace access (suspend) without deleting membership
@@ -218,6 +222,8 @@ Run migrations in this exact order:
 8. `202602200003_member_access_controls.sql`
 9. `202602200004_fix_list_workspace_members_type_mismatch.sql`
 10. `202602200005_harden_workspace_access_requests.sql`
+11. `202602210001_enforce_workspace_request_only_flow.sql`
+12. `202602210002_revoke_public_execute_legacy_member_grant.sql`
 
 After running migrations, refresh schema cache:
 ```sql
@@ -228,7 +234,12 @@ notify pgrst, 'reload schema';
 If latest migrations are not applied, app has fallback behavior for:
 - account deletion request/confirm
 - workspace member revoke
-- workspace access grant flow (legacy direct grant)
+
+Strict mode note:
+- Access grant fallback is intentionally disabled.
+- Required migrations for strict join flow:
+  - `202602210001_enforce_workspace_request_only_flow.sql`
+  - `202602210002_revoke_public_execute_legacy_member_grant.sql`
 
 Temporary member suspension requires migration `202602200003_member_access_controls.sql` and `workspace_members.access_disabled` column.
 
@@ -269,6 +280,9 @@ Before every push/deploy:
 2. `npm run build`
 3. Verify login, entry create, history filters, export, and team access actions
 4. If team/permission code changed, verify related migrations are applied in target Supabase project
+5. Verify join waiting-room flow:
+   - no workspace access before request acceptance
+   - pending request link appears in Join Workspace mode
 
 ## Troubleshooting
 
