@@ -170,6 +170,17 @@ export function useAuthSession(): AuthHook {
       throw new Error("Supabase is not configured");
     }
 
+    const {
+      data: { session: activeSession }
+    } = await supabase.auth.getSession();
+    if (activeSession) {
+      const { error: clearError } = await supabase.auth.signOut({ scope: "local" });
+      if (clearError) {
+        throw clearError;
+      }
+      setSession(null);
+    }
+
     const googleEnabled = await isGoogleProviderEnabled();
     if (!googleEnabled) {
       throw new Error("Google login is not enabled in Supabase yet. Use email/password or enable Google provider.");
@@ -179,7 +190,11 @@ export function useAuthSession(): AuthHook {
       provider: "google",
       options: {
         redirectTo: window.location.origin,
-        skipBrowserRedirect: true
+        skipBrowserRedirect: true,
+        queryParams: {
+          prompt: "select_account",
+          access_type: "offline"
+        }
       }
     });
 
