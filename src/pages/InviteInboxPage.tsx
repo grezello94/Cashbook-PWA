@@ -16,6 +16,13 @@ export function InviteInboxPage(props: InviteInboxPageProps): JSX.Element {
   const { mode, invites, respondingId, onRespond, onJoinWorkspace, onBackToDecide, onCreateWorkspace } = props;
   const [checkingJoin, setCheckingJoin] = useState(false);
   const [joinFeedback, setJoinFeedback] = useState("");
+  const formatRequestedAt = (value: string): string => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return "recently";
+    }
+    return date.toLocaleString();
+  };
 
   return (
     <div className="center-layout">
@@ -106,32 +113,60 @@ export function InviteInboxPage(props: InviteInboxPageProps): JSX.Element {
               </div>
               {!!joinFeedback && <p className="muted">{joinFeedback}</p>}
 
-              {!!invites.length && <p className="muted">Pending request links</p>}
+              {!!invites.length && <p className="muted">Pending access requests</p>}
               {invites.map((invite) => {
                 const busy = respondingId === invite.id;
                 const requester = invite.requested_by_name || invite.requested_by_email || "Workspace admin";
                 return (
-                  <article key={invite.id} className="member-row">
-                    <div>
-                      <strong>{invite.workspace_name}</strong>
-                      <small>
-                        {invite.workspace_industry} | {invite.workspace_currency} | {invite.workspace_timezone}
-                      </small>
-                      <small>Requested by: {requester}</small>
+                  <article key={invite.id} className="invite-card">
+                    <div className="invite-card-head">
+                      <div>
+                        <strong>{invite.workspace_name}</strong>
+                        <small>
+                          {invite.workspace_industry} | {invite.workspace_currency} | {invite.workspace_timezone}
+                        </small>
+                      </div>
+                      <span className={`invite-role-badge ${invite.role === "admin" ? "invite-role-admin" : "invite-role-editor"}`}>
+                        {invite.role === "admin" ? "Admin Access" : "Editor Access"}
+                      </span>
                     </div>
-                    <div className="inline-actions">
+                    <div className="invite-meta">
+                      <small>Requested by: {requester}</small>
+                      <small>Sent: {formatRequestedAt(invite.requested_at)}</small>
+                    </div>
+                    <div className="invite-perms">
+                      {invite.role === "admin" ? (
+                        <>
+                          <span className="invite-perm-chip invite-perm-admin">Full workspace control</span>
+                          <span className="invite-perm-chip invite-perm-admin">Manage users & permissions</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="invite-perm-chip invite-perm-editor">Can add/edit entries</span>
+                          <span className={`invite-perm-chip ${invite.can_delete_entries ? "invite-perm-admin" : "invite-perm-muted"}`}>
+                            {invite.can_delete_entries ? "Can delete entries" : "Delete disabled"}
+                          </span>
+                          <span
+                            className={`invite-perm-chip ${invite.can_manage_categories ? "invite-perm-admin" : "invite-perm-muted"}`}
+                          >
+                            {invite.can_manage_categories ? "Can manage categories" : "Category management disabled"}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    <div className="invite-actions">
                       <button
-                        className="secondary-btn"
+                        className="primary-btn"
                         type="button"
                         disabled={busy}
                         onClick={() => {
                           void onRespond(invite.id, "accept");
                         }}
                       >
-                        {busy ? "Saving..." : "Accept Request"}
+                        {busy ? "Saving..." : "Accept Access"}
                       </button>
                       <button
-                        className="ghost-btn"
+                        className="reject-btn"
                         type="button"
                         disabled={busy}
                         onClick={() => {

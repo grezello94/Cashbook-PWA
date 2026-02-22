@@ -962,6 +962,106 @@ body.app-shell-active .app-shell {
   margin-top: 4px;
 }
 
+.invite-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 14px;
+  background:
+    radial-gradient(450px 130px at 8% -22%, rgba(37, 99, 235, 0.08), transparent 45%),
+    linear-gradient(180deg, #fbfdff, #f6faff);
+}
+
+.invite-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.invite-card-head strong {
+  display: block;
+}
+
+.invite-card-head small {
+  display: block;
+  margin-top: 4px;
+}
+
+.invite-role-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.invite-role-admin {
+  color: #1e3a8a;
+  background: #e0ecff;
+  border-color: rgba(37, 99, 235, 0.3);
+}
+
+.invite-role-editor {
+  color: #166534;
+  background: #dcfce7;
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.invite-meta {
+  display: grid;
+  gap: 2px;
+}
+
+.invite-meta small {
+  display: block;
+  color: #4f6382;
+}
+
+.invite-perms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.invite-perm-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.invite-perm-admin {
+  color: #1d4ed8;
+  background: #e0ecff;
+  border-color: rgba(37, 99, 235, 0.3);
+}
+
+.invite-perm-editor {
+  color: #047857;
+  background: #d1fae5;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.invite-perm-muted {
+  color: #475569;
+  background: #e2e8f0;
+  border-color: rgba(100, 116, 139, 0.28);
+}
+
+.invite-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
 .profile-card {
   display: flex;
   align-items: center;
@@ -1804,6 +1904,15 @@ body.app-shell-active .app-shell {
 
   .member-row {
     flex-direction: column;
+  }
+
+  .invite-card-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .invite-actions {
+    grid-template-columns: 1fr;
   }
 
   .switch-row-action {
