@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { BrandLogo } from "@/components/common/BrandLogo";
 import { NeonCard } from "@/components/common/NeonCard";
 import { countries, detectCountryPreference, findCountryByCode, normalizePhone } from "@/data/countries";
@@ -7,10 +7,11 @@ import type { SignUpInput } from "@/hooks/useAuthSession";
 interface AuthPageProps {
   onSignIn: (email: string, password: string) => Promise<void>;
   onSignUp: (input: SignUpInput) => Promise<void>;
-  onGoogle: () => Promise<void>;
+  onGoogle: (emailHint?: string) => Promise<void>;
 }
 
 type AuthMode = "signin" | "signup";
+const OAUTH_LAST_ERROR_KEY = "cashbook:oauth-last-error";
 
 export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.Element {
   const defaultCountry = useMemo(() => detectCountryPreference(), []);
@@ -31,6 +32,18 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
   const [mobile, setMobile] = useState("");
 
   const selectedCountry = findCountryByCode(countryCode) ?? defaultCountry;
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const storedError = window.sessionStorage.getItem(OAUTH_LAST_ERROR_KEY);
+    if (!storedError) {
+      return;
+    }
+    setError(storedError);
+    window.sessionStorage.removeItem(OAUTH_LAST_ERROR_KEY);
+  }, []);
 
   const submitSignIn = async (event: FormEvent) => {
     event.preventDefault();
@@ -98,7 +111,8 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
     setMessage("");
 
     try {
-      await onGoogle();
+      const emailHint = (mode === "signin" ? signinEmail : signupEmail).trim();
+      await onGoogle(emailHint || undefined);
     } catch (err) {
       const raw = err instanceof Error ? err.message : "Google sign in failed.";
       if (raw.toLowerCase().includes("provider is not enabled")) {

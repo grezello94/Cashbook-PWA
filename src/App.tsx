@@ -53,6 +53,10 @@ const WELCOME_PENDING_EMAIL_KEY = "cashbook:welcome-pending-email";
 const WELCOME_SHOWN_USER_KEY_PREFIX = "cashbook:welcome-shown:";
 type WorkspaceEntryMode = "decide" | "join" | "create";
 
+function lastWorkspaceKeyForUser(userId: string): string {
+  return `${LAST_WORKSPACE_KEY}:${userId}`;
+}
+
 function readError(error: unknown): string {
   if (error instanceof Error && error.message) {
     return error.message;
@@ -61,6 +65,16 @@ function readError(error: unknown): string {
     return error.message;
   }
   return "Something went wrong";
+}
+
+function isWorkspaceAccessMissingError(error: unknown): boolean {
+  const message = readError(error).toLowerCase();
+  return (
+    message.includes("pgrst116") ||
+    message.includes("json object requested, multiple (or no) rows returned") ||
+    message.includes("workspace not found") ||
+    message.includes("no rows")
+  );
 }
 
 function inferCategoryId(categories: Category[], direction: CashDirection): string {
@@ -144,15 +158,72 @@ export default function App(): JSX.Element {
   const [accountDeletionConfirming, setAccountDeletionConfirming] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [welcomeName, setWelcomeName] = useState("");
+  const [showAccessRevokedPrompt, setShowAccessRevokedPrompt] = useState(false);
+  const [showJoinRequestPrompt, setShowJoinRequestPrompt] = useState(false);
   const syncRunningRef = useRef(false);
   const accountRestoreRef = useRef(false);
   const previousOnlineRef = useRef<boolean | null>(null);
   const lastUserIdRef = useRef<string>("");
   const quickAmountInputRef = useRef<HTMLInputElement | null>(null);
+  const lastHapticAtRef = useRef(0);
 
   const userId = session?.user.id ?? "";
   const workspaceId = context?.workspace.id ?? "";
   const mobileInputHapticsEnabled = useMemo(() => isLikelyMobileDevice(), []);
+
+  const triggerHaptic = useCallback(
+    (pattern: number | number[] = 8) => {
+      if (!mobileInputHapticsEnabled || typeof navigator === "undefined" || !("vibrate" in navigator)) {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastHapticAtRef.current < 45) {
+        return;
+      }
+
+      lastHapticAtRef.current = now;
+      navigator.vibrate(pattern);
+    },
+    [mobileInputHapticsEnabled]
+  );
+
+  useEffect(() => {
+    if (!mobileInputHapticsEnabled || typeof window === "undefined") {
+      return;
+    }
+
+    const interactiveSelector =
+      "button, [role='button'], a, .chip, .segment-btn, .google-btn, input[type='checkbox'], input[type='radio'], select";
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.pointerType && event.pointerType !== "touch") {
+        return;
+      }
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      if (!target.closest(interactiveSelector)) {
+        return;
+      }
+      triggerHaptic(8);
+    };
+
+    window.addEventListener("pointerdown", onPointerDown, { passive: true });
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [mobileInputHapticsEnabled, triggerHaptic]);
+
+  const clearWorkspaceState = useCallback(() => {
+    setContext(null);
+    setCategories([]);
+    setEntries([]);
+    setPendingDeleteRequests([]);
+    setTeamMembers([]);
+    setTeamLoadError("");
+    setRespondingAccessRequestId("");
+    setTab("dashboard");
+  }, []);
 
   useEffect(() => {
     if (lastUserIdRef.current === userId) {
@@ -160,18 +231,15 @@ export default function App(): JSX.Element {
     }
 
     lastUserIdRef.current = userId;
-    setContext(null);
-    setCategories([]);
-    setEntries([]);
-    setPendingDeleteRequests([]);
-    setTeamMembers([]);
-    setTeamLoadError("");
+    clearWorkspaceState();
     setPendingAccessRequests([]);
     setRespondingAccessRequestId("");
     setWorkspaceEntryMode("decide");
     setProfileNameSeed("");
     setProfilePhoneSeed("");
-  }, [userId]);
+    setShowAccessRevokedPrompt(false);
+    setShowJoinRequestPrompt(false);
+  }, [userId, clearWorkspaceState]);
 
   const smartCategories = useMemo(() => {
     if (!categories.length) {
@@ -353,11 +421,9 @@ export default function App(): JSX.Element {
 
       notify(`${actor} added ${side} ${amountText} in ${categoryName}`);
 
-      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-        navigator.vibrate(120);
-      }
+      triggerHaptic(120);
     },
-    [context, userId, memberNameById, categories]
+    [context, userId, memberNameById, categories, triggerHaptic]
   );
 
   const loadWorkspace = useCallback(async (workspaceId: string, currentUserId: string) => {
@@ -386,7 +452,8 @@ export default function App(): JSX.Element {
     setEntries(entryRows);
     setPendingDeleteRequests(deleteRows);
     setTeamMembers(memberRows);
-    window.localStorage.setItem(LAST_WORKSPACE_KEY, workspaceId);
+    window.localStorage.setItem(lastWorkspaceKeyForUser(currentUserId), workspaceId);
+    window.localStorage.removeItem(LAST_WORKSPACE_KEY);
   }, []);
 
   const detectTemporaryAccessAvailability = useCallback(async () => {
@@ -438,24 +505,40 @@ export default function App(): JSX.Element {
     }
   };
 
+  const handleAccessRevoked = useCallback(
+    async (reason: string) => {
+      clearWorkspaceState();
+      setWorkspaceEntryMode("decide");
+      setShowJoinRequestPrompt(false);
+      setShowAccessRevokedPrompt(true);
+      setMessage(reason);
+      try {
+        await refreshAccessRequests();
+      } catch {
+        // If request fetch fails temporarily, the user can still proceed from decide screen.
+      }
+    },
+    [clearWorkspaceState, refreshAccessRequests]
+  );
+
   const bootstrapWorkspace = useCallback(
     async (uid: string) => {
       const workspaces = await listUserWorkspaces(uid);
       if (!workspaces.length) {
-        setContext(null);
-        setCategories([]);
-        setEntries([]);
-        setPendingDeleteRequests([]);
-        setTeamMembers([]);
-        setTeamLoadError("");
+        clearWorkspaceState();
         setPendingAccessRequests([]);
-        setRespondingAccessRequestId("");
         return;
       }
 
-      const savedWorkspaceId = window.localStorage.getItem(LAST_WORKSPACE_KEY) ?? "";
+      const scopedKey = lastWorkspaceKeyForUser(uid);
+      const legacySavedWorkspaceId = window.localStorage.getItem(LAST_WORKSPACE_KEY) ?? "";
+      const savedWorkspaceId = window.localStorage.getItem(scopedKey) ?? legacySavedWorkspaceId;
       const savedWorkspace = workspaces.find((item) => item.workspace.id === savedWorkspaceId);
       if (savedWorkspace) {
+        window.localStorage.setItem(scopedKey, savedWorkspace.workspace.id);
+        if (legacySavedWorkspaceId) {
+          window.localStorage.removeItem(LAST_WORKSPACE_KEY);
+        }
         await loadWorkspace(savedWorkspace.workspace.id, uid);
         return;
       }
@@ -474,7 +557,7 @@ export default function App(): JSX.Element {
       const fallbackWorkspaceId = ranked[0]?.workspaceId ?? workspaces[0].workspace.id;
       await loadWorkspace(fallbackWorkspaceId, uid);
     },
-    [loadWorkspace]
+    [loadWorkspace, clearWorkspaceState]
   );
 
   useEffect(() => {
@@ -483,19 +566,15 @@ export default function App(): JSX.Element {
       setProfileNameSeed("");
       setProfilePhoneSeed("");
       setOnboardingCurrency(defaultCurrency);
-      setContext(null);
-      setCategories([]);
-      setEntries([]);
-      setPendingDeleteRequests([]);
-      setTeamMembers([]);
-      setTeamLoadError("");
+      clearWorkspaceState();
       setPendingAccessRequests([]);
-      setRespondingAccessRequestId("");
       setWorkspaceEntryMode("decide");
       setTemporaryAccessAvailable(true);
       setQueueCount(queueSize());
       setSyncingQueue(false);
       setSyncIssue("");
+      setShowAccessRevokedPrompt(false);
+      setShowJoinRequestPrompt(false);
       return;
     }
 
@@ -583,7 +662,15 @@ export default function App(): JSX.Element {
         setLoading(false);
       }
     })();
-  }, [userId, session, bootstrapWorkspace, refreshAccessRequests, detectTemporaryAccessAvailability, signOut]);
+  }, [
+    userId,
+    session,
+    bootstrapWorkspace,
+    refreshAccessRequests,
+    detectTemporaryAccessAvailability,
+    signOut,
+    clearWorkspaceState
+  ]);
 
   useEffect(() => {
     if (!session?.user?.id) {
@@ -640,11 +727,13 @@ export default function App(): JSX.Element {
           void refreshAccessRequests();
 
           if (payload.eventType === "INSERT" && nextStatus === "pending") {
-            setWorkspaceEntryMode("join");
-            setMessage("New workspace access request received.");
-            if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-              navigator.vibrate(120);
+            if (workspaceId) {
+              setShowJoinRequestPrompt(true);
+            } else {
+              setWorkspaceEntryMode("join");
             }
+            setMessage("New workspace access request received.");
+            triggerHaptic(120);
           }
 
           if (payload.eventType === "UPDATE" && nextStatus === "accepted") {
@@ -657,7 +746,60 @@ export default function App(): JSX.Element {
     return () => {
       void sb.removeChannel(channel);
     };
-  }, [userId, refreshAccessRequests, bootstrapWorkspace]);
+  }, [userId, workspaceId, refreshAccessRequests, bootstrapWorkspace, triggerHaptic]);
+
+  useEffect(() => {
+    const sb = supabase;
+    if (!sb || !userId) {
+      return;
+    }
+
+    const channel = (sb
+      .channel(`workspace-members-self-${userId}`) as any)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "workspace_members",
+          filter: `user_id=eq.${userId}`
+        },
+        (payload: {
+          eventType: string;
+          new?: { workspace_id?: string; access_disabled?: boolean };
+          old?: { workspace_id?: string; access_disabled?: boolean };
+        }) => {
+          const affectedWorkspaceId = payload.new?.workspace_id ?? payload.old?.workspace_id ?? "";
+          const accessDisabled = Boolean(payload.new?.access_disabled);
+          const lostAccess = payload.eventType === "DELETE" || accessDisabled;
+
+          if (lostAccess && affectedWorkspaceId && affectedWorkspaceId === workspaceId) {
+            void handleAccessRevoked("Your access to this workspace was revoked. Choose how to continue.");
+            return;
+          }
+
+          if (affectedWorkspaceId && affectedWorkspaceId === workspaceId) {
+            void loadWorkspace(workspaceId, userId).catch((error) => {
+              if (isWorkspaceAccessMissingError(error)) {
+                void handleAccessRevoked("Your access to this workspace was revoked. Choose how to continue.");
+                return;
+              }
+              setMessage(readError(error));
+            });
+            return;
+          }
+
+          void bootstrapWorkspace(userId).catch(() => {
+            // No-op: next auth/data cycle will retry.
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void sb.removeChannel(channel);
+    };
+  }, [userId, workspaceId, loadWorkspace, bootstrapWorkspace, handleAccessRevoked]);
 
   useEffect(() => {
     if (!workspaceId || !userId) {
@@ -1126,14 +1268,43 @@ export default function App(): JSX.Element {
     window.localStorage.setItem(WELCOME_PENDING_EMAIL_KEY, input.email.trim().toLowerCase());
   };
 
-  const handleGoogle = async (): Promise<void> => {
-    await signInWithGoogle();
+  const handleGoogle = async (emailHint?: string): Promise<void> => {
+    await signInWithGoogle(emailHint);
   };
 
   const handleSignOut = async () => {
     try {
       await signOut();
       notify("Signed out");
+    } catch (error) {
+      notify(readError(error));
+    }
+  };
+
+  const openMyWorkspaceFromPrompt = async (): Promise<void> => {
+    if (!userId) {
+      return;
+    }
+
+    setShowAccessRevokedPrompt(false);
+    setShowJoinRequestPrompt(false);
+    setLoading(true);
+    try {
+      await bootstrapWorkspace(userId);
+    } catch (error) {
+      notify(readError(error));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reviewJoinRequestsFromPrompt = async (): Promise<void> => {
+    clearWorkspaceState();
+    setShowAccessRevokedPrompt(false);
+    setShowJoinRequestPrompt(false);
+    setWorkspaceEntryMode("join");
+    try {
+      await refreshAccessRequests();
     } catch (error) {
       notify(readError(error));
     }
@@ -1303,8 +1474,8 @@ export default function App(): JSX.Element {
               placeholder="0.00"
               onChange={(event) => {
                 const next = sanitizeAmountInput(event.target.value);
-                if (next !== quickAmount && mobileInputHapticsEnabled && typeof navigator !== "undefined" && "vibrate" in navigator) {
-                  navigator.vibrate(8);
+                if (next !== quickAmount) {
+                  triggerHaptic(8);
                 }
                 setQuickAmount(next);
               }}
@@ -1353,6 +1524,59 @@ export default function App(): JSX.Element {
               </button>
               <button className="save-btn" onClick={saveQuickEntry}>
                 Swipe Up to Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAccessRevokedPrompt && (
+        <div className="modal-backdrop">
+          <div className="welcome-modal">
+            <div className="welcome-topline">Workspace Access Updated</div>
+            <h3 className="welcome-title">Your previous workspace access was removed.</h3>
+            <p className="welcome-summary">
+              Choose what to do next: open your own workspace, or review pending join requests.
+            </p>
+            <div className="inline-actions">
+              <button className="primary-btn" type="button" onClick={() => void openMyWorkspaceFromPrompt()}>
+                Open My Workspace
+              </button>
+              <button className="secondary-btn" type="button" onClick={() => void reviewJoinRequestsFromPrompt()}>
+                Review Join Requests
+              </button>
+            </div>
+            <button
+              className="ghost-btn"
+              type="button"
+              onClick={() => {
+                setShowAccessRevokedPrompt(false);
+              }}
+            >
+              Later
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showJoinRequestPrompt && (
+        <div className="modal-backdrop">
+          <div className="welcome-modal">
+            <div className="welcome-topline">Join Request Received</div>
+            <h3 className="welcome-title">A workspace admin sent you an access request.</h3>
+            <p className="welcome-summary">Open the request now to accept or reject it.</p>
+            <div className="inline-actions">
+              <button className="primary-btn" type="button" onClick={() => void reviewJoinRequestsFromPrompt()}>
+                Review Request
+              </button>
+              <button
+                className="ghost-btn"
+                type="button"
+                onClick={() => {
+                  setShowJoinRequestPrompt(false);
+                }}
+              >
+                Later
               </button>
             </div>
           </div>

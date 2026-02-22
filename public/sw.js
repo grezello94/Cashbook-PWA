@@ -1,4 +1,4 @@
-const CACHE_NAME = "cashbook-shell-v2";
+const CACHE_NAME = "cashbook-shell-v3";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -29,6 +29,31 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") {
+    return;
+  }
+
+  const requestUrl = new URL(event.request.url);
+  if (requestUrl.origin !== self.location.origin) {
+    return;
+  }
+
+  const isNavigation = event.request.mode === "navigate";
+  const isOAuthCodeCallback =
+    requestUrl.searchParams.has("code") ||
+    requestUrl.searchParams.has("error") ||
+    requestUrl.searchParams.has("error_code");
+
+  // Always go network-first for document navigations so latest index/auth code is used.
+  if (isNavigation || isOAuthCodeCallback) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          return response;
+        })
+        .catch(() => caches.match("/index.html"))
+    );
     return;
   }
 
