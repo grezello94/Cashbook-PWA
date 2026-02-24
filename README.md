@@ -185,6 +185,8 @@ VITE_SUPABASE_URL=
 VITE_SUPABASE_ANON_KEY=
 VITE_DEFAULT_CURRENCY=USD
 VITE_AI_CATEGORIES_ENDPOINT=
+VITE_TELEMETRY_ENDPOINT=
+VITE_AUTH_RELAY_BASE=
 ```
 
 ## Local Setup
@@ -200,6 +202,10 @@ cp .env.example .env
 4. Run dev server:
 ```bash
 npm run dev
+```
+   If you want to test serverless API routes locally (like auth relay), run:
+```bash
+npm run dev:vercel
 ```
 5. Validate type safety:
 ```bash
@@ -224,6 +230,7 @@ Run migrations in this exact order:
 10. `202602200005_harden_workspace_access_requests.sql`
 11. `202602210001_enforce_workspace_request_only_flow.sql`
 12. `202602210002_revoke_public_execute_legacy_member_grant.sql`
+13. `202602240001_secure_receipts_storage.sql`
 
 After running migrations, refresh schema cache:
 ```sql
@@ -270,6 +277,10 @@ Set in Vercel Project Settings:
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_DEFAULT_CURRENCY` (optional)
 - `VITE_AI_CATEGORIES_ENDPOINT` (optional)
+- `VITE_TELEMETRY_ENDPOINT` (optional, receives auth retry/failure events)
+- `VITE_AUTH_RELAY_BASE` (optional, use deployed app base URL for auth relay fallback)
+- `SUPABASE_URL` (server-side auth relay config)
+- `SUPABASE_ANON_KEY` (server-side auth relay config)
 
 ### Production URL
 - `https://cashbook-pwa.vercel.app/`

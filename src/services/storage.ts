@@ -17,6 +17,6 @@ export async function uploadReceipt(workspaceId: string, userId: string, file: F
     throw error;
   }
 
-  const { data } = sb.storage.from("receipts").getPublicUrl(path);
-  return data.publicUrl;
+  // Keep only storage object path in DB; access is resolved via storage policies/signed URLs.
+  return path;
 }

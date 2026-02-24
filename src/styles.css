@@ -162,6 +162,23 @@ code {
   gap: 10px;
 }
 
+.auth-remember-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #44536e;
+  font-size: 0.92rem;
+  font-weight: 600;
+  user-select: none;
+}
+
+.auth-remember-input {
+  width: 18px;
+  height: 18px;
+  accent-color: #1f5eff;
+  margin: 0;
+}
+
 .auth-divider {
   display: flex;
   align-items: center;
@@ -201,27 +218,128 @@ code {
   min-height: 100dvh;
   display: grid;
   place-content: center;
-  gap: 16px;
+  gap: 12px;
+  text-align: center;
+  padding: 24px 18px;
 }
 
-.loading-orb {
-  width: 64px;
-  height: 64px;
+.loader-stage {
+  width: min(196px, 74vw);
+  aspect-ratio: 1;
+  margin: 0 auto 2px;
   border-radius: 999px;
-  margin: 0 auto;
-  background: linear-gradient(135deg, var(--blue), #60a5fa);
+  display: grid;
+  place-items: center;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at center, rgba(31, 94, 255, 0.16), transparent 62%),
+    linear-gradient(150deg, rgba(255, 255, 255, 0.72), rgba(226, 235, 252, 0.24));
   box-shadow:
-    0 0 24px rgba(59, 130, 246, 0.35),
-    0 0 40px rgba(37, 99, 235, 0.3);
-  animation: pulse 1.2s ease-in-out infinite alternate;
+    inset 0 0 0 1px rgba(30, 64, 175, 0.18),
+    inset 0 0 34px rgba(37, 99, 235, 0.2),
+    0 24px 50px rgba(30, 64, 175, 0.2);
 }
 
-@keyframes pulse {
+.loader-ring {
+  position: absolute;
+  border-radius: 999px;
+  border: 1px solid rgba(59, 130, 246, 0.45);
+  box-shadow: 0 0 18px rgba(37, 99, 235, 0.22);
+}
+
+.loader-ring-outer {
+  width: 85%;
+  height: 85%;
+  animation: loaderSpin 6.4s linear infinite;
+}
+
+.loader-ring-middle {
+  width: 62%;
+  height: 62%;
+  border-color: rgba(30, 64, 175, 0.44);
+  animation: loaderSpinReverse 5.2s linear infinite;
+}
+
+.loader-ring-inner {
+  width: 44%;
+  height: 44%;
+  border-color: rgba(96, 165, 250, 0.58);
+  animation: loaderSpin 3.4s linear infinite;
+}
+
+.loader-grid {
+  position: absolute;
+  inset: 14%;
+  border-radius: 999px;
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(37, 99, 235, 0.18) 0deg 14deg,
+    transparent 14deg 28deg
+  );
+  mask: radial-gradient(circle at center, transparent 46%, #000 47%);
+  animation: loaderSpin 7.8s linear infinite;
+}
+
+.loader-core {
+  width: 34%;
+  height: 34%;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, #4c87ff, #1f5eff);
+  box-shadow:
+    inset 0 0 14px rgba(255, 255, 255, 0.34),
+    0 0 28px rgba(37, 99, 235, 0.56),
+    0 0 56px rgba(59, 130, 246, 0.32);
+  animation: loaderCorePulse 1.25s ease-in-out infinite alternate;
+}
+
+.loader-core-dot {
+  width: 36%;
+  height: 36%;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.62);
+}
+
+.loading-label {
+  font-size: clamp(1.18rem, 2.5vw, 1.42rem);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.loading-subtle {
+  max-width: 360px;
+  margin: 0 auto;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+@keyframes loaderSpin {
   from {
-    transform: scale(0.92);
+    transform: rotate(0deg);
   }
   to {
-    transform: scale(1.03);
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes loaderSpinReverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes loaderCorePulse {
+  from {
+    transform: scale(0.9);
+  }
+  to {
+    transform: scale(1.04);
   }
 }
 
@@ -862,6 +980,7 @@ body.app-shell-active .app-shell {
   background: linear-gradient(165deg, #ffffff, #f4f8ff);
   min-width: 150px;
   justify-content: space-between;
+  gap: 12px;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 
@@ -885,51 +1004,69 @@ body.app-shell-active .app-shell {
 }
 
 .toggle-input {
+  --toggle-height: clamp(40px, 8vw, 46px);
+  --toggle-width: clamp(100px, 22vw, 122px);
+  --toggle-pad: 4px;
   appearance: none;
-  width: 52px;
-  height: 30px;
+  width: var(--toggle-width);
+  height: var(--toggle-height);
   border-radius: 999px;
-  border: 1px solid rgba(30, 64, 175, 0.24);
-  background: linear-gradient(180deg, #e5edf8, #d6e2f4);
+  border: 2px solid rgba(10, 30, 58, 0.3);
+  background: linear-gradient(180deg, #09223c, #071a31);
   position: relative;
-  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.1);
+  box-shadow: inset 0 1px 3px rgba(7, 12, 23, 0.3);
   transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   cursor: pointer;
   flex: 0 0 auto;
   margin-left: auto;
 }
 
+.toggle-input::before {
+  content: "OFF";
+  position: absolute;
+  left: clamp(12px, 3vw, 16px);
+  top: 50%;
+  transform: translateY(-50%);
+  color: #f8fcff;
+  font-size: clamp(0.9rem, 2.8vw, 1.1rem);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
 .toggle-input::after {
   content: "";
   position: absolute;
-  width: 24px;
-  height: 24px;
-  top: 2px;
-  left: 2px;
+  width: calc(var(--toggle-height) - (var(--toggle-pad) * 2));
+  height: calc(var(--toggle-height) - (var(--toggle-pad) * 2));
+  top: var(--toggle-pad);
+  left: calc(100% - var(--toggle-pad) - (var(--toggle-height) - (var(--toggle-pad) * 2)));
   border-radius: 999px;
-  background: linear-gradient(180deg, #ffffff, #f8fbff);
-  border: 1px solid rgba(30, 64, 175, 0.18);
-  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.2);
-  transition: transform 0.2s ease;
+  background: linear-gradient(180deg, #ffffff, #f5f8fb);
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.28);
+  transition: box-shadow 0.2s ease;
 }
 
 .toggle-input:checked {
-  background: linear-gradient(145deg, #1f5eff, #2563eb);
-  border-color: rgba(30, 64, 175, 0.5);
-  box-shadow:
-    inset 0 1px 2px rgba(10, 25, 70, 0.28),
-    0 0 0 3px rgba(31, 94, 255, 0.14);
+  background: linear-gradient(180deg, #4ca9df, #2e90ca);
+  border-color: rgba(34, 112, 168, 0.7);
+  box-shadow: inset 0 1px 3px rgba(9, 42, 70, 0.22);
+}
+
+.toggle-input:checked::before {
+  content: "ON";
 }
 
 .toggle-input:checked::after {
-  transform: translateX(22px);
+  box-shadow: 0 6px 14px rgba(8, 22, 38, 0.26);
 }
 
 .toggle-input:focus-visible {
   outline: none;
   box-shadow:
-    0 0 0 4px rgba(31, 94, 255, 0.22),
-    inset 0 1px 2px rgba(10, 25, 70, 0.28);
+    0 0 0 4px rgba(31, 94, 255, 0.2),
+    inset 0 1px 3px rgba(9, 42, 70, 0.22);
 }
 
 .toggle-input:disabled {

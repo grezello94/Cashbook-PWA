@@ -3,15 +3,43 @@ import { BrandLogo } from "@/components/common/BrandLogo";
 import { NeonCard } from "@/components/common/NeonCard";
 import { countries, detectCountryPreference, findCountryByCode, normalizePhone } from "@/data/countries";
 import type { SignUpInput } from "@/hooks/useAuthSession";
+import { getRememberSessionPreference, setRememberSessionPreference, supabaseUrl } from "@/lib/supabase";
 
 interface AuthPageProps {
-  onSignIn: (email: string, password: string) => Promise<void>;
-  onSignUp: (input: SignUpInput) => Promise<void>;
-  onGoogle: (emailHint?: string) => Promise<void>;
+  onSignIn: (email: string, password: string, staySignedIn: boolean) => Promise<void>;
+  onSignUp: (input: SignUpInput, staySignedIn: boolean) => Promise<void>;
+  onGoogle: (emailHint: string | undefined, staySignedIn: boolean) => Promise<void>;
 }
 
 type AuthMode = "signin" | "signup";
 const OAUTH_LAST_ERROR_KEY = "cashbook:oauth-last-error";
+const OAUTH_ERROR_MAX_AGE_MS = 2 * 60 * 1000;
+
+interface OAuthLastErrorPayload {
+  message: string;
+  createdAt: number;
+}
+
+function mapAuthError(error: unknown, fallback: string): string {
+  const raw = error instanceof Error ? error.message : fallback;
+  const normalized = raw.toLowerCase();
+  if (
+    normalized.includes("failed to fetch") ||
+    normalized.includes("fetch failed") ||
+    normalized.includes("networkerror") ||
+    normalized.includes("timed out") ||
+    normalized.includes("timeout")
+  ) {
+    let host = "your Supabase auth host";
+    try {
+      host = new URL(supabaseUrl).host;
+    } catch {
+      // Keep fallback host label.
+    }
+    return `Cannot reach ${host}. Check firewall/VPN/DNS or try another network.`;
+  }
+  return raw;
+}
 
 export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.Element {
   const defaultCountry = useMemo(() => detectCountryPreference(), []);
@@ -30,18 +58,38 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
   const [confirmPassword, setConfirmPassword] = useState("");
   const [countryCode, setCountryCode] = useState(defaultCountry.code);
   const [mobile, setMobile] = useState("");
+  const [staySignedIn, setStaySignedIn] = useState<boolean>(() => getRememberSessionPreference());
 
   const selectedCountry = findCountryByCode(countryCode) ?? defaultCountry;
+  const handleStaySignedInChange = (checked: boolean) => {
+    setStaySignedIn(checked);
+    setRememberSessionPreference(checked);
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
-    const storedError = window.sessionStorage.getItem(OAUTH_LAST_ERROR_KEY);
-    if (!storedError) {
+    const raw = window.sessionStorage.getItem(OAUTH_LAST_ERROR_KEY);
+    if (!raw) {
       return;
     }
-    setError(storedError);
+
+    let message = "";
+    let createdAt = 0;
+    try {
+      const parsed = JSON.parse(raw) as Partial<OAuthLastErrorPayload>;
+      message = typeof parsed.message === "string" ? parsed.message : "";
+      createdAt = typeof parsed.createdAt === "number" ? parsed.createdAt : 0;
+    } catch {
+      // Legacy plain-string values should be auto-cleared and not re-shown.
+      message = "";
+      createdAt = 0;
+    }
+
+    if (message && createdAt && Date.now() - createdAt <= OAUTH_ERROR_MAX_AGE_MS) {
+      setError(message);
+    }
     window.sessionStorage.removeItem(OAUTH_LAST_ERROR_KEY);
   }, []);
 
@@ -52,10 +100,10 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
     setMessage("");
 
     try {
-      await onSignIn(signinEmail, signinPassword);
+      await onSignIn(signinEmail, signinPassword, staySignedIn);
       setMessage("Signed in successfully.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign in failed.");
+      setError(mapAuthError(err, "Sign in failed."));
     } finally {
       setBusy(false);
     }
@@ -80,21 +128,24 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
         throw new Error("Enter a valid mobile number.");
       }
 
-      await onSignUp({
-        fullName: fullName.trim(),
-        email: signupEmail,
-        password: signupPassword,
-        phone: normalizedPhone,
-        country: selectedCountry.code,
-        currency: selectedCountry.currency
-      });
+      await onSignUp(
+        {
+          fullName: fullName.trim(),
+          email: signupEmail,
+          password: signupPassword,
+          phone: normalizedPhone,
+          country: selectedCountry.code,
+          currency: selectedCountry.currency
+        },
+        staySignedIn
+      );
 
       setMessage("Account created. Check your email to verify, then sign in.");
       setMode("signin");
       setSigninEmail(signupEmail.trim());
       setSigninPassword("");
     } catch (err) {
-      const raw = err instanceof Error ? err.message : "Sign up failed.";
+      const raw = mapAuthError(err, "Sign up failed.");
       if (raw.toLowerCase().includes("already")) {
         setError("This email is already registered. Use Sign In to continue.");
       } else {
@@ -112,9 +163,9 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
 
     try {
       const emailHint = (mode === "signin" ? signinEmail : signupEmail).trim();
-      await onGoogle(emailHint || undefined);
+      await onGoogle(emailHint || undefined, staySignedIn);
     } catch (err) {
-      const raw = err instanceof Error ? err.message : "Google sign in failed.";
+      const raw = mapAuthError(err, "Google sign in failed.");
       if (raw.toLowerCase().includes("provider is not enabled")) {
         setError("Google login is not enabled in Supabase yet. Use email/password or enable Google provider.");
       } else {
@@ -174,6 +225,17 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
                 onChange={(event) => setSigninPassword(event.target.value)}
                 placeholder="Enter password"
               />
+
+              <label className="auth-remember-row" htmlFor="stay-signed-in">
+                <input
+                  id="stay-signed-in"
+                  className="auth-remember-input"
+                  type="checkbox"
+                  checked={staySignedIn}
+                  onChange={(event) => handleStaySignedInChange(event.target.checked)}
+                />
+                <span>Stay signed in on this device</span>
+              </label>
 
               <button className="primary-btn" type="submit" disabled={busy}>
                 {busy ? "Signing in..." : "Sign In"}
@@ -237,6 +299,17 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
                 onChange={(event) => setSignupPassword(event.target.value)}
                 placeholder="Create password"
               />
+
+              <label className="auth-remember-row" htmlFor="stay-signed-in-signup">
+                <input
+                  id="stay-signed-in-signup"
+                  className="auth-remember-input"
+                  type="checkbox"
+                  checked={staySignedIn}
+                  onChange={(event) => handleStaySignedInChange(event.target.checked)}
+                />
+                <span>Stay signed in on this device</span>
+              </label>
 
               <label htmlFor="signup-confirm-password">Confirm Password</label>
               <input

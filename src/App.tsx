@@ -22,7 +22,7 @@ import type { AICategorySuggestion } from "@/services/aiCategories";
 import { confirmAccountDeletion, requestAccountDeletion } from "@/services/accountDeletion";
 import { addAICategories, addManualCategory, archiveCategory, listCategories, seedIndustryCategories } from "@/services/categories";
 import { listPendingDeleteRequests, requestDelete, reviewDeleteRequest } from "@/services/deleteRequests";
-import { addEntry, countActiveEntries, deleteEntryDirect, listEntries } from "@/services/entries";
+import { addEntry, deleteEntryDirect, listEntries } from "@/services/entries";
 import {
   grantMemberAccessByContact,
   listMyWorkspaceAccessRequests,
@@ -431,27 +431,24 @@ export default function App(): JSX.Element {
 
     const [categoryRows, entryRows] = await Promise.all([listCategories(workspaceId), listEntries(workspaceId)]);
 
-    let deleteRows: DeleteRequest[] = [];
-    if (workspaceContext.member.role === "admin" || workspaceContext.member.can_delete_entries) {
-      deleteRows = await listPendingDeleteRequests(workspaceId);
-    }
+    const canReviewDeletes = workspaceContext.member.role === "admin" || workspaceContext.member.can_delete_entries;
+    const canManageUsers = workspaceContext.member.role === "admin" || workspaceContext.member.can_manage_users;
 
-    let memberRows: WorkspaceMemberDirectory[] = [];
-    setTeamLoadError("");
-    if (workspaceContext.member.role === "admin" || workspaceContext.member.can_manage_users) {
-      try {
-        memberRows = await listWorkspaceMembers(workspaceId);
-      } catch (error) {
-        memberRows = [];
-        setTeamLoadError(readError(error));
-      }
-    }
+    const deleteRowsPromise = canReviewDeletes ? listPendingDeleteRequests(workspaceId) : Promise.resolve<DeleteRequest[]>([]);
+    const memberRowsPromise: Promise<{ rows: WorkspaceMemberDirectory[]; error: string }> = canManageUsers
+      ? listWorkspaceMembers(workspaceId)
+          .then((rows) => ({ rows, error: "" }))
+          .catch((error) => ({ rows: [], error: readError(error) }))
+      : Promise.resolve({ rows: [], error: "" });
 
+    const [deleteRows, memberResult] = await Promise.all([deleteRowsPromise, memberRowsPromise]);
+
+    setTeamLoadError(memberResult.error);
     setContext(workspaceContext);
     setCategories(categoryRows);
     setEntries(entryRows);
     setPendingDeleteRequests(deleteRows);
-    setTeamMembers(memberRows);
+    setTeamMembers(memberResult.rows);
     window.localStorage.setItem(lastWorkspaceKeyForUser(currentUserId), workspaceId);
     window.localStorage.removeItem(LAST_WORKSPACE_KEY);
   }, []);
@@ -523,6 +520,24 @@ export default function App(): JSX.Element {
 
   const bootstrapWorkspace = useCallback(
     async (uid: string) => {
+      const scopedKey = lastWorkspaceKeyForUser(uid);
+      const legacySavedWorkspaceId = window.localStorage.getItem(LAST_WORKSPACE_KEY) ?? "";
+      const savedWorkspaceId = window.localStorage.getItem(scopedKey) ?? legacySavedWorkspaceId;
+      if (savedWorkspaceId) {
+        try {
+          await loadWorkspace(savedWorkspaceId, uid);
+          window.localStorage.setItem(scopedKey, savedWorkspaceId);
+          if (legacySavedWorkspaceId) {
+            window.localStorage.removeItem(LAST_WORKSPACE_KEY);
+          }
+          return;
+        } catch (error) {
+          if (!isWorkspaceAccessMissingError(error)) {
+            throw error;
+          }
+        }
+      }
+
       const workspaces = await listUserWorkspaces(uid);
       if (!workspaces.length) {
         clearWorkspaceState();
@@ -530,31 +545,7 @@ export default function App(): JSX.Element {
         return;
       }
 
-      const scopedKey = lastWorkspaceKeyForUser(uid);
-      const legacySavedWorkspaceId = window.localStorage.getItem(LAST_WORKSPACE_KEY) ?? "";
-      const savedWorkspaceId = window.localStorage.getItem(scopedKey) ?? legacySavedWorkspaceId;
-      const savedWorkspace = workspaces.find((item) => item.workspace.id === savedWorkspaceId);
-      if (savedWorkspace) {
-        window.localStorage.setItem(scopedKey, savedWorkspace.workspace.id);
-        if (legacySavedWorkspaceId) {
-          window.localStorage.removeItem(LAST_WORKSPACE_KEY);
-        }
-        await loadWorkspace(savedWorkspace.workspace.id, uid);
-        return;
-      }
-
-      const ranked = await Promise.all(
-        workspaces.map(async (item) => {
-          try {
-            const count = await countActiveEntries(item.workspace.id);
-            return { workspaceId: item.workspace.id, count };
-          } catch {
-            return { workspaceId: item.workspace.id, count: 0 };
-          }
-        })
-      );
-      ranked.sort((a, b) => b.count - a.count);
-      const fallbackWorkspaceId = ranked[0]?.workspaceId ?? workspaces[0].workspace.id;
+      const fallbackWorkspaceId = workspaces[0].workspace.id;
       await loadWorkspace(fallbackWorkspaceId, uid);
     },
     [loadWorkspace, clearWorkspaceState]
@@ -651,11 +642,13 @@ export default function App(): JSX.Element {
         }
 
         setNeedsProfileSetup(false);
-        await Promise.all([
-          bootstrapWorkspace(userId),
-          refreshAccessRequests(),
-          detectTemporaryAccessAvailability()
-        ]);
+        await bootstrapWorkspace(userId);
+        void refreshAccessRequests().catch(() => {
+          // Non-blocking during boot for faster first paint.
+        });
+        void detectTemporaryAccessAvailability().catch(() => {
+          // Optional capability check; do not block initial app load.
+        });
       } catch (error) {
         notify(readError(error));
       } finally {
@@ -1259,17 +1252,17 @@ export default function App(): JSX.Element {
     }
   };
 
-  const handleSignIn = async (email: string, password: string): Promise<void> => {
-    await signInWithEmail(email, password);
+  const handleSignIn = async (email: string, password: string, staySignedIn: boolean): Promise<void> => {
+    await signInWithEmail(email, password, staySignedIn);
   };
 
-  const handleSignUp = async (input: SignUpInput): Promise<void> => {
-    await signUpWithEmail(input);
+  const handleSignUp = async (input: SignUpInput, staySignedIn: boolean): Promise<void> => {
+    await signUpWithEmail(input, staySignedIn);
     window.localStorage.setItem(WELCOME_PENDING_EMAIL_KEY, input.email.trim().toLowerCase());
   };
 
-  const handleGoogle = async (emailHint?: string): Promise<void> => {
-    await signInWithGoogle(emailHint);
+  const handleGoogle = async (emailHint: string | undefined, staySignedIn: boolean): Promise<void> => {
+    await signInWithGoogle(emailHint, staySignedIn);
   };
 
   const handleSignOut = async () => {
