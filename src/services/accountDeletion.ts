@@ -112,20 +112,23 @@ export async function requestAccountDeletion(email: string): Promise<void> {
     }
   }
 
-  const redirectUrl = new URL(window.location.href);
-  redirectUrl.searchParams.set("account_delete_token", token);
+  // Send custom account deletion email
+  const { sendAccountDeletionEmail } = await import("./sendAccountDeletionEmail");
+  await sendAccountDeletionEmail(email.trim(), token);
 
-  const { error: otpError } = await sb.auth.signInWithOtp({
-    email: email.trim(),
-    options: {
-      shouldCreateUser: false,
-      emailRedirectTo: redirectUrl.toString()
-    }
-  });
-
-  if (otpError) {
-    throw otpError;
-  }
+  // Optionally, you can still send the OTP for fallback
+  // const redirectUrl = new URL(window.location.href);
+  // redirectUrl.searchParams.set("account_delete_token", token);
+  // const { error: otpError } = await sb.auth.signInWithOtp({
+  //   email: email.trim(),
+  //   options: {
+  //     shouldCreateUser: false,
+  //     emailRedirectTo: redirectUrl.toString()
+  //   }
+  // });
+  // if (otpError) {
+  //   throw otpError;
+  // }
 }
 
 export async function confirmAccountDeletion(token: string): Promise<void> {

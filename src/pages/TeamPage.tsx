@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { NeonCard } from "@/components/common/NeonCard";
-import type { AppRole, WorkspaceMember, WorkspaceMemberDirectory } from "@/types/domain";
+import type { AppRole, WorkspaceAccessRequestSent, WorkspaceMember, WorkspaceMemberDirectory } from "@/types/domain";
 
 interface TeamPageProps {
   member: WorkspaceMember;
@@ -31,6 +31,9 @@ interface TeamPageProps {
   onUpdateTimezone: (timezone: string) => Promise<void>;
   onRequestDeleteAccount: () => Promise<void>;
   deletingAccount: boolean;
+  sentAccessRequests: WorkspaceAccessRequestSent[];
+  sentAccessRequestsError?: string;
+  onRefreshSentAccessRequests: () => Promise<void>;
 }
 
 export function TeamPage(props: TeamPageProps): JSX.Element {
@@ -48,7 +51,10 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
     onRevokeMember,
     onUpdateTimezone,
     onRequestDeleteAccount,
-    deletingAccount
+    deletingAccount,
+    sentAccessRequests,
+    sentAccessRequestsError = "",
+    onRefreshSentAccessRequests
   } = props;
 
   const [contactType, setContactType] = useState<"email" | "phone">("email");
@@ -64,6 +70,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
   const [timezoneEditOpen, setTimezoneEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [refreshingSentRequests, setRefreshingSentRequests] = useState(false);
 
   const normalizePhone = (value: string): string => value.replace(/[^\d+]/g, "");
 
@@ -151,6 +158,40 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
     });
   }, [members]);
 
+  const formatDateTime = (value: string): string => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return "Recently";
+    }
+    return parsed.toLocaleString();
+  };
+
+  const statusLabel = (value: WorkspaceAccessRequestSent["status"]): string => {
+    switch (value) {
+      case "accepted":
+        return "Accepted";
+      case "rejected":
+        return "Rejected";
+      case "cancelled":
+        return "Cancelled";
+      default:
+        return "Pending";
+    }
+  };
+
+  const statusClass = (value: WorkspaceAccessRequestSent["status"]): string => {
+    switch (value) {
+      case "accepted":
+        return "sent-request-status sent-request-status-accepted";
+      case "rejected":
+        return "sent-request-status sent-request-status-rejected";
+      case "cancelled":
+        return "sent-request-status sent-request-status-cancelled";
+      default:
+        return "sent-request-status sent-request-status-pending";
+    }
+  };
+
   const grant = async (event: FormEvent) => {
     event.preventDefault();
     const value = contact.trim();
@@ -191,6 +232,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
     setError("");
     try {
       await onGrantAccess(value, role, allowDeleteForEditor, allowManageCategoriesForEditor);
+
       setContact("");
       setRole("editor");
       setAllowDeleteForEditor(false);
@@ -400,7 +442,11 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
           title="Access Management"
           subtitle="Admin sends request first. User must confirm before getting workspace access."
         >
-          <form className="stack" onSubmit={grant}>
+          <form 
+            className="stack" 
+            onSubmit={grant}
+            style={{ opacity: saving ? 0.6 : 1, transition: "opacity 0.3s ease", pointerEvents: saving ? "none" : "auto" }}
+          >
             <div className="access-alert">
               <strong>Security-sensitive area</strong>
               <small>Send requests only to verified staff accounts. User must already be registered.</small>
@@ -416,14 +462,24 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                     className={`method-btn ${contactType === "email" ? "method-btn-active" : ""}`.trim()}
                     onClick={() => setContactType("email")}
                   >
-                    @ Email
+                    <span className="method-btn-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                        <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9Zm1.8.2 6.2 4.5 6.2-4.5" />
+                      </svg>
+                    </span>
+                    <span>Email address</span>
                   </button>
                   <button
                     type="button"
                     className={`method-btn ${contactType === "phone" ? "method-btn-active" : ""}`.trim()}
                     onClick={() => setContactType("phone")}
                   >
-                    # Mobile
+                    <span className="method-btn-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                        <path d="M9 4.5h6A2.5 2.5 0 0 1 17.5 7v10A2.5 2.5 0 0 1 15 19.5H9A2.5 2.5 0 0 1 6.5 17V7A2.5 2.5 0 0 1 9 4.5Zm3 11.8h.01" />
+                      </svg>
+                    </span>
+                    <span>Mobile number</span>
                   </button>
                 </div>
               </div>
@@ -435,18 +491,30 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                   <button
                     type="button"
                     className={`role-btn role-btn-editor ${role === "editor" ? "role-btn-active" : ""}`.trim()}
+                    aria-pressed={role === "editor"}
                     onClick={() => setRole("editor")}
                   >
-                    Editor
-                    <span>Limited operations</span>
+                    <span className="role-btn-check" aria-hidden="true">
+                      {role === "editor" ? "✓" : ""}
+                    </span>
+                    <span className="role-btn-copy">
+                      Editor
+                      <span>Limited operations</span>
+                    </span>
                   </button>
                   <button
                     type="button"
                     className={`role-btn role-btn-admin ${role === "admin" ? "role-btn-active" : ""}`.trim()}
+                    aria-pressed={role === "admin"}
                     onClick={() => setRole("admin")}
                   >
-                    Admin
-                    <span>Full control</span>
+                    <span className="role-btn-check" aria-hidden="true">
+                      {role === "admin" ? "✓" : ""}
+                    </span>
+                    <span className="role-btn-copy">
+                      Admin
+                      <span>Full control</span>
+                    </span>
                   </button>
                 </div>
               </div>
@@ -486,6 +554,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                     checked={allowDeleteForEditor}
                     onChange={(event) => setAllowDeleteForEditor(event.target.checked)}
                   />
+                  <span className="toggle-ui" aria-hidden="true" />
                 </label>
 
                 <label className="switch-row switch-row-action" htmlFor="allow-manage-categories">
@@ -497,13 +566,14 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                     checked={allowManageCategoriesForEditor}
                     onChange={(event) => setAllowManageCategoriesForEditor(event.target.checked)}
                   />
+                  <span className="toggle-ui" aria-hidden="true" />
                 </label>
               </div>
             )}
 
             {error && <small className="error-text">{error}</small>}
 
-            <button className="primary-btn" type="submit" disabled={saving}>
+            <button className="primary-btn access-submit-btn" type="submit" disabled={saving}>
               {saving ? "Sending request..." : "Send Access Request"}
             </button>
           </form>
@@ -556,6 +626,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                             void updateRole(item.user_id, nextRole, nextDelete, nextManageCategories);
                           }}
                         />
+                        <span className="toggle-ui" aria-hidden="true" />
                       </label>
                     )}
 
@@ -572,6 +643,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                             void updateRole(item.user_id, "editor", event.target.checked, item.can_manage_categories);
                           }}
                         />
+                        <span className="toggle-ui" aria-hidden="true" />
                       </label>
                     )}
 
@@ -588,6 +660,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                             void updateRole(item.user_id, "editor", item.can_delete_entries, event.target.checked);
                           }}
                         />
+                        <span className="toggle-ui" aria-hidden="true" />
                       </label>
                     )}
 
@@ -604,6 +677,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
                             void toggleTemporaryAccess(item.user_id, !event.target.checked);
                           }}
                         />
+                        <span className="toggle-ui" aria-hidden="true" />
                       </label>
                     )}
 
@@ -628,6 +702,62 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
               );
             })}
             {!sortedMembers.length && !teamLoadError && <p className="muted">No members found.</p>}
+          </div>
+        </NeonCard>
+      )}
+
+      {canManageUsers && (
+        <NeonCard title="Sent Access Requests" subtitle="Requests sent to user email/mobile for this workspace">
+          <div className="stack">
+            <div className="sent-requests-head">
+              <div>
+                <small className="muted">Track whether requests are pending, accepted, rejected, or cancelled.</small>
+              </div>
+              <button
+                className="ghost-btn"
+                type="button"
+                disabled={refreshingSentRequests}
+                onClick={() => {
+                  void (async () => {
+                    setRefreshingSentRequests(true);
+                    try {
+                      await onRefreshSentAccessRequests();
+                    } finally {
+                      setRefreshingSentRequests(false);
+                    }
+                  })();
+                }}
+              >
+                {refreshingSentRequests ? "Refreshing..." : "Refresh"}
+              </button>
+            </div>
+
+            {sentAccessRequestsError && <small className="error-text">Could not load sent requests: {sentAccessRequestsError}</small>}
+
+            <div className="sent-requests-list">
+              {sentAccessRequests.map((request) => {
+                const contact = request.target_email || request.target_phone || request.target_user_id;
+                const targetLabel = request.target_name || contact;
+                return (
+                  <article key={request.id} className="sent-request-row">
+                    <div className="sent-request-head">
+                      <strong>{targetLabel}</strong>
+                      <span className={statusClass(request.status)}>{statusLabel(request.status)}</span>
+                    </div>
+                    <small>Contact: {contact}</small>
+                    <small>
+                      Role: {request.role} | Delete: {request.can_delete_entries ? "Yes" : "No"} | Categories:{" "}
+                      {request.can_manage_categories ? "Yes" : "No"}
+                    </small>
+                    <small>Sent: {formatDateTime(request.requested_at)}</small>
+                    {request.reviewed_at && <small>Reviewed: {formatDateTime(request.reviewed_at)}</small>}
+                  </article>
+                );
+              })}
+              {!sentAccessRequests.length && !sentAccessRequestsError && (
+                <p className="muted">No access requests sent yet for this workspace.</p>
+              )}
+            </div>
           </div>
         </NeonCard>
       )}

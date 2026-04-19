@@ -50,7 +50,11 @@ export function OnboardingPage(props: OnboardingPageProps): JSX.Element {
   return (
     <div className="center-layout">
       <NeonCard title="Onboarding" subtitle="Set up your workspace in under a minute" className="max-w-xl">
-        <form className="stack" onSubmit={onSubmit}>
+        <form 
+          className="stack" 
+          onSubmit={onSubmit}
+          style={{ opacity: loading || generating ? 0.6 : 1, transition: "opacity 0.3s ease", pointerEvents: loading || generating ? "none" : "auto" }}
+        >
           <label htmlFor="business-name">Business Name</label>
           <input
             id="business-name"

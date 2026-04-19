@@ -84,9 +84,17 @@ export function DashboardPage(props: DashboardPageProps): JSX.Element {
         <div className="today-health">
           <span className="pill">Income: {formatCurrency(todayIncome, workspace.currency)}</span>
           <span className="pill">Expense: {formatCurrency(todayExpense, workspace.currency)}</span>
-          <div className={`health-status ${aiInsight.tone}`.trim()}>
+          <div 
+            className={`health-status ${aiInsight.tone}`.trim()}
+            style={{ transition: "all 0.3s ease" }}
+            aria-live="polite"
+          >
             <span className={`health-indicator ${aiInsight.tone}`.trim()} aria-hidden="true" />
-            <small className={`health-note ${aiInsight.tone}`.trim()}>{aiInsight.text}</small>
+            <small className={`health-note ${aiInsight.tone}`.trim()}>
+              {aiInsight.tone === "warn" && <span style={{ marginRight: 6 }}>⚠️</span>}
+              {aiInsight.tone === "good" && <span style={{ marginRight: 6 }}>✨</span>}
+              {aiInsight.text}
+            </small>
           </div>
         </div>
         <div className="dashboard-primary-actions">

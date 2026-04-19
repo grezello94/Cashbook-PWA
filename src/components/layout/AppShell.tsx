@@ -71,7 +71,7 @@ export function AppShell(props: AppShellProps): JSX.Element {
         <div className="topbar-right">
           <div className="topbar-actions">
             <button
-              className="ghost-btn"
+              className="ghost-btn topbar-install-btn"
               onClick={onInstallApp}
               disabled={!installAvailable}
               title={!installAvailable ? "Install is not available in this browser." : undefined}
@@ -79,7 +79,7 @@ export function AppShell(props: AppShellProps): JSX.Element {
               Install App
             </button>
             <button
-              className="ghost-btn"
+              className="ghost-btn topbar-alert-btn"
               onClick={onEnableNotifications}
               disabled={!notificationSupported}
               title={!notificationSupported ? "Alerts are not supported in this browser." : undefined}

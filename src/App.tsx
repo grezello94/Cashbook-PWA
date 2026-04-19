@@ -26,6 +26,7 @@ import { addEntry, deleteEntryDirect, listEntries } from "@/services/entries";
 import {
   grantMemberAccessByContact,
   listMyWorkspaceAccessRequests,
+  listWorkspaceAccessRequestsSent,
   listWorkspaceMembers,
   respondWorkspaceAccessRequest,
   revokeWorkspaceMember,
@@ -42,6 +43,7 @@ import type {
   DeleteRequest,
   Entry,
   WorkspaceAccessRequest,
+  WorkspaceAccessRequestSent,
   WorkspaceContext,
   WorkspaceMemberDirectory
 } from "@/types/domain";
@@ -65,6 +67,19 @@ function readError(error: unknown): string {
     return error.message;
   }
   return "Something went wrong";
+}
+
+function normalizeSentRequestError(error: unknown): string {
+  const message = readError(error).toLowerCase();
+  if (
+    message.includes("list_workspace_access_requests_sent") ||
+    message.includes("failed to fetch") ||
+    message.includes("networkerror") ||
+    message.includes("load failed")
+  ) {
+    return "Sent requests are temporarily unavailable. Check internet and try Refresh.";
+  }
+  return readError(error);
 }
 
 function isWorkspaceAccessMissingError(error: unknown): boolean {
@@ -133,6 +148,8 @@ export default function App(): JSX.Element {
   const [teamMembers, setTeamMembers] = useState<WorkspaceMemberDirectory[]>([]);
   const [teamLoadError, setTeamLoadError] = useState("");
   const [pendingAccessRequests, setPendingAccessRequests] = useState<WorkspaceAccessRequest[]>([]);
+  const [sentAccessRequests, setSentAccessRequests] = useState<WorkspaceAccessRequestSent[]>([]);
+  const [sentAccessRequestsError, setSentAccessRequestsError] = useState("");
   const [respondingAccessRequestId, setRespondingAccessRequestId] = useState("");
   const [workspaceEntryMode, setWorkspaceEntryMode] = useState<WorkspaceEntryMode>("decide");
   const [temporaryAccessAvailable, setTemporaryAccessAvailable] = useState(true);
@@ -158,7 +175,6 @@ export default function App(): JSX.Element {
   const [accountDeletionConfirming, setAccountDeletionConfirming] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [welcomeName, setWelcomeName] = useState("");
-  const [showAccessRevokedPrompt, setShowAccessRevokedPrompt] = useState(false);
   const [showJoinRequestPrompt, setShowJoinRequestPrompt] = useState(false);
   const syncRunningRef = useRef(false);
   const accountRestoreRef = useRef(false);
@@ -221,6 +237,8 @@ export default function App(): JSX.Element {
     setPendingDeleteRequests([]);
     setTeamMembers([]);
     setTeamLoadError("");
+    setSentAccessRequests([]);
+    setSentAccessRequestsError("");
     setRespondingAccessRequestId("");
     setTab("dashboard");
   }, []);
@@ -237,7 +255,6 @@ export default function App(): JSX.Element {
     setWorkspaceEntryMode("decide");
     setProfileNameSeed("");
     setProfilePhoneSeed("");
-    setShowAccessRevokedPrompt(false);
     setShowJoinRequestPrompt(false);
   }, [userId, clearWorkspaceState]);
 
@@ -440,10 +457,21 @@ export default function App(): JSX.Element {
           .then((rows) => ({ rows, error: "" }))
           .catch((error) => ({ rows: [], error: readError(error) }))
       : Promise.resolve({ rows: [], error: "" });
+    const sentAccessRequestsPromise: Promise<{ rows: WorkspaceAccessRequestSent[]; error: string }> = canManageUsers
+      ? listWorkspaceAccessRequestsSent(workspaceId)
+          .then((rows) => ({ rows, error: "" }))
+          .catch((error) => ({ rows: [], error: normalizeSentRequestError(error) }))
+      : Promise.resolve({ rows: [], error: "" });
 
-    const [deleteRows, memberResult] = await Promise.all([deleteRowsPromise, memberRowsPromise]);
+    const [deleteRows, memberResult, sentResult] = await Promise.all([
+      deleteRowsPromise,
+      memberRowsPromise,
+      sentAccessRequestsPromise
+    ]);
 
     setTeamLoadError(memberResult.error);
+    setSentAccessRequests(sentResult.rows);
+    setSentAccessRequestsError(sentResult.error);
     setContext(workspaceContext);
     setCategories(categoryRows);
     setEntries(entryRows);
@@ -491,6 +519,24 @@ export default function App(): JSX.Element {
     }
   }, []);
 
+  const refreshSentAccessRequests = useCallback(async (): Promise<void> => {
+    if (!workspaceId) {
+      setSentAccessRequests([]);
+      setSentAccessRequestsError("");
+      return;
+    }
+
+    try {
+      const rows = await listWorkspaceAccessRequestsSent(workspaceId);
+      setSentAccessRequests(rows);
+      setSentAccessRequestsError("");
+    } catch (error) {
+      const message = normalizeSentRequestError(error);
+      setSentAccessRequests([]);
+      setSentAccessRequestsError(message);
+    }
+  }, [workspaceId]);
+
   const openJoinWorkspace = async (): Promise<number> => {
     try {
       setWorkspaceEntryMode("join");
@@ -505,17 +551,20 @@ export default function App(): JSX.Element {
   const handleAccessRevoked = useCallback(
     async (reason: string) => {
       clearWorkspaceState();
+      if (userId) {
+        window.localStorage.removeItem(lastWorkspaceKeyForUser(userId));
+      }
+      window.localStorage.removeItem(LAST_WORKSPACE_KEY);
       setWorkspaceEntryMode("decide");
       setShowJoinRequestPrompt(false);
-      setShowAccessRevokedPrompt(true);
-      setMessage(reason);
+      notify(reason);
       try {
         await refreshAccessRequests();
       } catch {
         // If request fetch fails temporarily, the user can still proceed from decide screen.
       }
     },
-    [clearWorkspaceState, refreshAccessRequests]
+    [clearWorkspaceState, refreshAccessRequests, userId]
   );
 
   const bootstrapWorkspace = useCallback(
@@ -564,7 +613,6 @@ export default function App(): JSX.Element {
       setQueueCount(queueSize());
       setSyncingQueue(false);
       setSyncIssue("");
-      setShowAccessRevokedPrompt(false);
       setShowJoinRequestPrompt(false);
       return;
     }
@@ -1083,8 +1131,37 @@ export default function App(): JSX.Element {
     }
 
     await grantMemberAccessByContact(workspaceId, contact, role, allowDeleteForEditor, allowManageCategoriesForEditor);
-    const refreshed = await listWorkspaceMembers(workspaceId);
-    setTeamMembers(refreshed);
+    const normalizedContact = contact.trim();
+    const optimisticTargetEmail = normalizedContact.includes("@") ? normalizedContact : null;
+    const optimisticTargetPhone = optimisticTargetEmail ? null : normalizedContact || null;
+    const optimisticRequest: WorkspaceAccessRequestSent = {
+      id: `optimistic-${Date.now()}`,
+      workspace_id: workspaceId,
+      target_user_id: "",
+      target_name: null,
+      target_email: optimisticTargetEmail,
+      target_phone: optimisticTargetPhone,
+      requested_by: userId,
+      role,
+      can_delete_entries: role === "admin" ? true : allowDeleteForEditor,
+      can_manage_categories: role === "admin" ? true : allowManageCategoriesForEditor,
+      status: "pending",
+      requested_at: new Date().toISOString(),
+      reviewed_at: null,
+      note: null
+    };
+
+    setSentAccessRequestsError("");
+    setSentAccessRequests((prev) => {
+      const deduped = prev.filter((item) => {
+        const existingContact = (item.target_email || item.target_phone || "").trim().toLowerCase();
+        return existingContact !== normalizedContact.toLowerCase();
+      });
+      return [optimisticRequest, ...deduped];
+    });
+
+    const [refreshedMembers] = await Promise.all([listWorkspaceMembers(workspaceId), refreshSentAccessRequests()]);
+    setTeamMembers(refreshedMembers);
     notify("Access request sent. User must confirm before getting workspace access.");
   };
 
@@ -1274,26 +1351,8 @@ export default function App(): JSX.Element {
     }
   };
 
-  const openMyWorkspaceFromPrompt = async (): Promise<void> => {
-    if (!userId) {
-      return;
-    }
-
-    setShowAccessRevokedPrompt(false);
-    setShowJoinRequestPrompt(false);
-    setLoading(true);
-    try {
-      await bootstrapWorkspace(userId);
-    } catch (error) {
-      notify(readError(error));
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const reviewJoinRequestsFromPrompt = async (): Promise<void> => {
     clearWorkspaceState();
-    setShowAccessRevokedPrompt(false);
     setShowJoinRequestPrompt(false);
     setWorkspaceEntryMode("join");
     try {
@@ -1358,6 +1417,7 @@ export default function App(): JSX.Element {
       return (
         <InviteInboxPage
           mode={workspaceEntryMode === "join" ? "join" : "decide"}
+          workspaceLabel="Unnamed Workspace"
           invites={pendingAccessRequests}
           respondingId={respondingAccessRequestId}
           onRespond={respondAccessRequest}
@@ -1442,6 +1502,9 @@ export default function App(): JSX.Element {
             onUpdateTimezone={saveWorkspaceTimezone}
             onRequestDeleteAccount={sendAccountDeletionLink}
             deletingAccount={accountDeletionSending}
+            sentAccessRequests={sentAccessRequests}
+            sentAccessRequestsError={sentAccessRequestsError}
+            onRefreshSentAccessRequests={refreshSentAccessRequests}
           />
         )}
       </AppShell>
@@ -1519,35 +1582,6 @@ export default function App(): JSX.Element {
                 Swipe Up to Save
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {showAccessRevokedPrompt && (
-        <div className="modal-backdrop">
-          <div className="welcome-modal">
-            <div className="welcome-topline">Workspace Access Updated</div>
-            <h3 className="welcome-title">Your previous workspace access was removed.</h3>
-            <p className="welcome-summary">
-              Choose what to do next: open your own workspace, or review pending join requests.
-            </p>
-            <div className="inline-actions">
-              <button className="primary-btn" type="button" onClick={() => void openMyWorkspaceFromPrompt()}>
-                Open My Workspace
-              </button>
-              <button className="secondary-btn" type="button" onClick={() => void reviewJoinRequestsFromPrompt()}>
-                Review Join Requests
-              </button>
-            </div>
-            <button
-              className="ghost-btn"
-              type="button"
-              onClick={() => {
-                setShowAccessRevokedPrompt(false);
-              }}
-            >
-              Later
-            </button>
           </div>
         </div>
       )}

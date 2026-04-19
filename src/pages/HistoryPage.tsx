@@ -309,6 +309,7 @@ export function HistoryPage({
             <button
               key={preset.value}
               type="button"
+              style={{ transition: "all 0.2s ease" }}
               className={`quick-preset-chip ${datePreset === preset.value ? "quick-preset-chip-active" : ""}`.trim()}
               onClick={() => setDatePreset(preset.value)}
             >

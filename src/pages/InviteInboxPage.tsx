@@ -4,6 +4,7 @@ import type { WorkspaceAccessRequest } from "@/types/domain";
 
 interface InviteInboxPageProps {
   mode: "decide" | "join";
+  workspaceLabel?: string;
   invites: WorkspaceAccessRequest[];
   respondingId: string;
   onRespond: (requestId: string, decision: "accept" | "reject") => Promise<void>;
@@ -13,7 +14,7 @@ interface InviteInboxPageProps {
 }
 
 export function InviteInboxPage(props: InviteInboxPageProps): JSX.Element {
-  const { mode, invites, respondingId, onRespond, onJoinWorkspace, onBackToDecide, onCreateWorkspace } = props;
+  const { mode, workspaceLabel = "Unnamed Workspace", invites, respondingId, onRespond, onJoinWorkspace, onBackToDecide, onCreateWorkspace } = props;
   const [checkingJoin, setCheckingJoin] = useState(false);
   const [joinFeedback, setJoinFeedback] = useState("");
   const formatRequestedAt = (value: string): string => {
@@ -36,6 +37,11 @@ export function InviteInboxPage(props: InviteInboxPageProps): JSX.Element {
         }
       >
         <div className="stack">
+          <div className="type-selection-note">
+            Workspace:
+            <span className="category-type-badge category-type-neutral">{workspaceLabel}</span>
+          </div>
+
           {mode === "decide" && (
             <>
               <p className="muted">
@@ -118,7 +124,11 @@ export function InviteInboxPage(props: InviteInboxPageProps): JSX.Element {
                 const busy = respondingId === invite.id;
                 const requester = invite.requested_by_name || invite.requested_by_email || "Workspace admin";
                 return (
-                  <article key={invite.id} className="invite-card">
+                  <article 
+                    key={invite.id} 
+                    className="invite-card"
+                    style={{ opacity: busy ? 0.6 : 1, transition: "opacity 0.3s ease", pointerEvents: busy ? "none" : "auto" }}
+                  >
                     <div className="invite-card-head">
                       <div>
                         <strong>{invite.workspace_name}</strong>

@@ -1,5 +1,11 @@
 import { requireSupabase } from "@/lib/supabase";
-import type { AppRole, DashboardScope, WorkspaceAccessRequest, WorkspaceMemberDirectory } from "@/types/domain";
+import type {
+  AppRole,
+  DashboardScope,
+  WorkspaceAccessRequest,
+  WorkspaceAccessRequestSent,
+  WorkspaceMemberDirectory
+} from "@/types/domain";
 
 interface MembersRpcRow {
   workspace_id: string;
@@ -32,6 +38,44 @@ interface AccessRequestRpcRow {
   requested_at: string;
 }
 
+interface SentAccessRequestRpcRow {
+  id: string;
+  workspace_id: string;
+  target_user_id: string;
+  target_name: string | null;
+  target_email: string | null;
+  target_phone: string | null;
+  requested_by: string;
+  role: AppRole;
+  can_delete_entries: boolean;
+  can_manage_categories: boolean;
+  status: "pending" | "accepted" | "rejected" | "cancelled";
+  requested_at: string;
+  reviewed_at: string | null;
+  note: string | null;
+}
+
+interface SentAccessRequestTableRow {
+  id: string;
+  workspace_id: string;
+  target_user_id: string;
+  requested_by: string;
+  role: AppRole;
+  can_delete_entries: boolean;
+  can_manage_categories: boolean;
+  status: "pending" | "accepted" | "rejected" | "cancelled";
+  requested_at: string;
+  reviewed_at: string | null;
+  note: string | null;
+}
+
+interface AuditLogRow {
+  entity_id: string;
+  meta: {
+    contact?: unknown;
+  } | null;
+}
+
 function readErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) {
     return error.message;
@@ -40,6 +84,15 @@ function readErrorMessage(error: unknown): string {
     return error.message;
   }
   return "";
+}
+
+function isMissingSentRequestsRpc(error: unknown): boolean {
+  const message = readErrorMessage(error).toLowerCase();
+  return (
+    message.includes("could not find the function public.list_workspace_access_requests_sent") ||
+    message.includes("list_workspace_access_requests_sent") ||
+    message.includes("schema cache")
+  );
 }
 
 export async function listWorkspaceMembers(workspaceId: string): Promise<WorkspaceMemberDirectory[]> {
@@ -248,4 +301,89 @@ export async function respondWorkspaceAccessRequest(requestId: string, decision:
   if (error) {
     throw error;
   }
+}
+
+export async function listWorkspaceAccessRequestsSent(workspaceId: string): Promise<WorkspaceAccessRequestSent[]> {
+  const sb = requireSupabase();
+  const { data, error } = await sb.rpc("list_workspace_access_requests_sent", {
+    _workspace_id: workspaceId
+  });
+
+  if (!error) {
+    return ((data ?? []) as SentAccessRequestRpcRow[]).map((row) => ({
+      id: row.id,
+      workspace_id: row.workspace_id,
+      target_user_id: row.target_user_id,
+      target_name: row.target_name,
+      target_email: row.target_email,
+      target_phone: row.target_phone,
+      requested_by: row.requested_by,
+      role: row.role,
+      can_delete_entries: row.can_delete_entries,
+      can_manage_categories: row.can_manage_categories,
+      status: row.status,
+      requested_at: row.requested_at,
+      reviewed_at: row.reviewed_at,
+      note: row.note
+    }));
+  }
+
+  if (!isMissingSentRequestsRpc(error)) {
+    throw error;
+  }
+
+  const [{ data: requestRows, error: requestError }, { data: auditRows, error: auditError }] = await Promise.all([
+    sb
+      .from("workspace_access_requests")
+      .select(
+        "id, workspace_id, target_user_id, requested_by, role, can_delete_entries, can_manage_categories, status, requested_at, reviewed_at, note"
+      )
+      .eq("workspace_id", workspaceId)
+      .order("requested_at", { ascending: false }),
+    sb
+      .from("audit_logs")
+      .select("entity_id, meta")
+      .eq("workspace_id", workspaceId)
+      .eq("action", "workspace_access_requested")
+      .eq("entity_type", "workspace_access_request")
+  ]);
+
+  if (requestError) {
+    throw requestError;
+  }
+
+  if (auditError) {
+    throw auditError;
+  }
+
+  const contactByRequestId = new Map<string, string>();
+  for (const row of (auditRows ?? []) as AuditLogRow[]) {
+    const contact = typeof row.meta?.contact === "string" ? row.meta.contact.trim() : "";
+    if (contact) {
+      contactByRequestId.set(row.entity_id, contact);
+    }
+  }
+
+  return ((requestRows ?? []) as SentAccessRequestTableRow[]).map((row) => {
+    const contact = contactByRequestId.get(row.id) ?? "";
+    const targetEmail = contact.includes("@") ? contact : null;
+    const targetPhone = targetEmail ? null : contact || null;
+
+    return {
+      id: row.id,
+      workspace_id: row.workspace_id,
+      target_user_id: row.target_user_id,
+      target_name: null,
+      target_email: targetEmail,
+      target_phone: targetPhone,
+      requested_by: row.requested_by,
+      role: row.role,
+      can_delete_entries: row.can_delete_entries,
+      can_manage_categories: row.can_manage_categories,
+      status: row.status,
+      requested_at: row.requested_at,
+      reviewed_at: row.reviewed_at,
+      note: row.note
+    };
+  });
 }

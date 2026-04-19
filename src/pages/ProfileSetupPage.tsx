@@ -43,7 +43,11 @@ export function ProfileSetupPage({ defaultName, loading, onSave }: ProfileSetupP
   return (
     <div className="center-layout">
       <NeonCard title="Complete Profile" subtitle="Required before workspace access" className="max-w-xl">
-        <form className="stack" onSubmit={submit}>
+        <form 
+          className="stack" 
+          onSubmit={submit}
+          style={{ opacity: loading ? 0.6 : 1, transition: "opacity 0.3s ease", pointerEvents: loading ? "none" : "auto" }}
+        >
           <label htmlFor="profile-name">Full Name</label>
           <input
             id="profile-name"

@@ -92,6 +92,23 @@ export interface WorkspaceAccessRequest {
   requested_at: string;
 }
 
+export interface WorkspaceAccessRequestSent {
+  id: string;
+  workspace_id: string;
+  target_user_id: string;
+  target_name: string | null;
+  target_email: string | null;
+  target_phone: string | null;
+  requested_by: string;
+  role: AppRole;
+  can_delete_entries: boolean;
+  can_manage_categories: boolean;
+  status: "pending" | "accepted" | "rejected" | "cancelled";
+  requested_at: string;
+  reviewed_at: string | null;
+  note: string | null;
+}
+
 export interface CreateWorkspaceInput {
   name: string;
   industry: string;
