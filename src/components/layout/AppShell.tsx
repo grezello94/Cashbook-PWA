@@ -15,7 +15,6 @@ interface AppShellProps {
   notificationPermission: NotificationPermission | "unsupported";
   installAvailable: boolean;
   online: boolean;
-  queueCount: number;
   syncBanner?: string;
   children: ReactNode;
 }
@@ -33,7 +32,6 @@ export function AppShell(props: AppShellProps): JSX.Element {
     notificationPermission,
     installAvailable,
     online,
-    queueCount,
     syncBanner,
     children
   } = props;
@@ -91,7 +89,6 @@ export function AppShell(props: AppShellProps): JSX.Element {
             <span className={`pill ${online ? "pill-good" : "pill-warn"}`.trim()}>
               {online ? "Online" : "Offline"}
             </span>
-            {queueCount > 0 && <span className="pill pill-queue">{queueCount} pending</span>}
             <button className="ghost-btn topbar-signout" onClick={onSignOut}>
               Sign Out
             </button>

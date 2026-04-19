@@ -182,23 +182,6 @@ code {
   gap: 10px;
 }
 
-.auth-remember-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: #44536e;
-  font-size: 0.92rem;
-  font-weight: 600;
-  user-select: none;
-}
-
-.auth-remember-input {
-  width: 18px;
-  height: 18px;
-  accent-color: #1f5eff;
-  margin: 0;
-}
-
 .auth-divider {
   display: flex;
   align-items: center;

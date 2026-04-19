@@ -8,7 +8,6 @@ import type { SignUpInput } from "@/hooks/useAuthSession";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { formatCurrency, timeInTimeZoneHHmm, todayIsoDate, zonedDateTimeToIso } from "@/lib/format";
-import { enqueueEntry, flushQueue, queueSize } from "@/lib/offlineQueue";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 import { AuthPage } from "@/pages/AuthPage";
 import { DashboardPage } from "@/pages/DashboardPage";
@@ -50,14 +49,7 @@ import type {
 
 const localeDefaultCurrency = detectCountryPreference().currency;
 const defaultCurrency = (import.meta.env.VITE_DEFAULT_CURRENCY || localeDefaultCurrency || "USD").toUpperCase();
-const LAST_WORKSPACE_KEY = "cashbook:last-workspace-id";
-const WELCOME_PENDING_EMAIL_KEY = "cashbook:welcome-pending-email";
-const WELCOME_SHOWN_USER_KEY_PREFIX = "cashbook:welcome-shown:";
 type WorkspaceEntryMode = "decide" | "join" | "create";
-
-function lastWorkspaceKeyForUser(userId: string): string {
-  return `${LAST_WORKSPACE_KEY}:${userId}`;
-}
 
 function readError(error: unknown): string {
   if (error instanceof Error && error.message) {
@@ -155,9 +147,6 @@ export default function App(): JSX.Element {
   const [temporaryAccessAvailable, setTemporaryAccessAvailable] = useState(true);
   const [tab, setTab] = useState<AppTab>("dashboard");
   const [message, setMessage] = useState<string>("");
-  const [queueCount, setQueueCount] = useState<number>(queueSize());
-  const [syncingQueue, setSyncingQueue] = useState(false);
-  const [syncIssue, setSyncIssue] = useState("");
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
     typeof Notification === "undefined" ? "unsupported" : Notification.permission
   );
@@ -176,9 +165,7 @@ export default function App(): JSX.Element {
   const [showWelcome, setShowWelcome] = useState(false);
   const [welcomeName, setWelcomeName] = useState("");
   const [showJoinRequestPrompt, setShowJoinRequestPrompt] = useState(false);
-  const syncRunningRef = useRef(false);
   const accountRestoreRef = useRef(false);
-  const previousOnlineRef = useRef<boolean | null>(null);
   const lastUserIdRef = useRef<string>("");
   const quickAmountInputRef = useRef<HTMLInputElement | null>(null);
   const lastHapticAtRef = useRef(0);
@@ -477,8 +464,6 @@ export default function App(): JSX.Element {
     setEntries(entryRows);
     setPendingDeleteRequests(deleteRows);
     setTeamMembers(memberResult.rows);
-    window.localStorage.setItem(lastWorkspaceKeyForUser(currentUserId), workspaceId);
-    window.localStorage.removeItem(LAST_WORKSPACE_KEY);
   }, []);
 
   const detectTemporaryAccessAvailability = useCallback(async () => {
@@ -551,10 +536,6 @@ export default function App(): JSX.Element {
   const handleAccessRevoked = useCallback(
     async (reason: string) => {
       clearWorkspaceState();
-      if (userId) {
-        window.localStorage.removeItem(lastWorkspaceKeyForUser(userId));
-      }
-      window.localStorage.removeItem(LAST_WORKSPACE_KEY);
       setWorkspaceEntryMode("decide");
       setShowJoinRequestPrompt(false);
       notify(reason);
@@ -564,29 +545,11 @@ export default function App(): JSX.Element {
         // If request fetch fails temporarily, the user can still proceed from decide screen.
       }
     },
-    [clearWorkspaceState, refreshAccessRequests, userId]
+    [clearWorkspaceState, refreshAccessRequests]
   );
 
   const bootstrapWorkspace = useCallback(
     async (uid: string) => {
-      const scopedKey = lastWorkspaceKeyForUser(uid);
-      const legacySavedWorkspaceId = window.localStorage.getItem(LAST_WORKSPACE_KEY) ?? "";
-      const savedWorkspaceId = window.localStorage.getItem(scopedKey) ?? legacySavedWorkspaceId;
-      if (savedWorkspaceId) {
-        try {
-          await loadWorkspace(savedWorkspaceId, uid);
-          window.localStorage.setItem(scopedKey, savedWorkspaceId);
-          if (legacySavedWorkspaceId) {
-            window.localStorage.removeItem(LAST_WORKSPACE_KEY);
-          }
-          return;
-        } catch (error) {
-          if (!isWorkspaceAccessMissingError(error)) {
-            throw error;
-          }
-        }
-      }
-
       const workspaces = await listUserWorkspaces(uid);
       if (!workspaces.length) {
         clearWorkspaceState();
@@ -610,9 +573,6 @@ export default function App(): JSX.Element {
       setPendingAccessRequests([]);
       setWorkspaceEntryMode("decide");
       setTemporaryAccessAvailable(true);
-      setQueueCount(queueSize());
-      setSyncingQueue(false);
-      setSyncIssue("");
       setShowJoinRequestPrompt(false);
       return;
     }
@@ -718,31 +678,16 @@ export default function App(): JSX.Element {
       return;
     }
 
-    const normalizedEmail = (session.user.email ?? "").trim().toLowerCase();
-    const pendingEmail = (window.localStorage.getItem(WELCOME_PENDING_EMAIL_KEY) ?? "").trim().toLowerCase();
-    const shownKey = `${WELCOME_SHOWN_USER_KEY_PREFIX}${session.user.id}`;
-    if (window.localStorage.getItem(shownKey) === "1") {
-      if (pendingEmail && normalizedEmail && pendingEmail === normalizedEmail) {
-        window.localStorage.removeItem(WELCOME_PENDING_EMAIL_KEY);
-      }
-      return;
-    }
-
     const createdAtMs = Date.parse(session.user.created_at ?? "");
     const accountCreatedRecently = Number.isFinite(createdAtMs) && Date.now() - createdAtMs < 1000 * 60 * 60 * 24;
-    const isPendingSignUp = Boolean(pendingEmail && normalizedEmail && pendingEmail === normalizedEmail);
-    if (!isPendingSignUp && !accountCreatedRecently) {
+    if (!accountCreatedRecently || showWelcome) {
       return;
     }
 
     const metadataName = readMetaString((session.user.user_metadata ?? {}) as Record<string, unknown>, "full_name").trim();
     setWelcomeName(metadataName || profileNameSeed || "there");
     setShowWelcome(true);
-    window.localStorage.setItem(shownKey, "1");
-    if (isPendingSignUp) {
-      window.localStorage.removeItem(WELCOME_PENDING_EMAIL_KEY);
-    }
-  }, [session, profileNameSeed]);
+  }, [session, profileNameSeed, showWelcome]);
 
   useEffect(() => {
     const sb = supabase;
@@ -841,97 +786,6 @@ export default function App(): JSX.Element {
       void sb.removeChannel(channel);
     };
   }, [userId, workspaceId, loadWorkspace, bootstrapWorkspace, handleAccessRevoked]);
-
-  useEffect(() => {
-    if (!workspaceId || !userId) {
-      return;
-    }
-
-    const previous = previousOnlineRef.current;
-    previousOnlineRef.current = online;
-    if (previous === null) {
-      return;
-    }
-
-    if (!online) {
-      notify("Offline mode: entries are saved on this device and will auto-sync when internet returns.");
-      return;
-    }
-
-    if (!previous && online && queueSize() > 0) {
-      notify("Back online. Syncing your offline entries now.");
-    }
-  }, [online, workspaceId, userId]);
-
-  useEffect(() => {
-    if (!online || !workspaceId || !userId) {
-      setSyncingQueue(false);
-      return;
-    }
-
-    let cancelled = false;
-    const syncNow = async () => {
-      if (syncRunningRef.current) {
-        return;
-      }
-
-      const pendingBefore = queueSize();
-      setQueueCount(pendingBefore);
-      if (pendingBefore === 0) {
-        setSyncIssue("");
-        return;
-      }
-
-      syncRunningRef.current = true;
-      setSyncingQueue(true);
-      try {
-        const result = await flushQueue({
-          addEntry: async (payload) => {
-            await addEntry(payload);
-          }
-        });
-        if (cancelled) {
-          return;
-        }
-
-        const pendingAfter = queueSize();
-        setQueueCount(pendingAfter);
-        if (result.failed > 0) {
-          setSyncIssue("Some entries are still pending sync. They remain safely stored on this device.");
-        } else {
-          setSyncIssue("");
-        }
-
-        if (result.processed > 0) {
-          await loadWorkspace(workspaceId, userId);
-        }
-
-        if (pendingBefore > 0 && pendingAfter === 0) {
-          notify(`Sync complete: ${result.processed} offline entr${result.processed === 1 ? "y" : "ies"} uploaded.`);
-        }
-      } catch {
-        if (!cancelled) {
-          setQueueCount(queueSize());
-          setSyncIssue("Sync paused due to network/server issue. Offline entries are still safe and retrying.");
-        }
-      } finally {
-        syncRunningRef.current = false;
-        if (!cancelled) {
-          setSyncingQueue(false);
-        }
-      }
-    };
-
-    void syncNow();
-    const timer = window.setInterval(() => {
-      void syncNow();
-    }, 15000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [online, workspaceId, userId, loadWorkspace]);
 
   useEffect(() => {
     const sb = supabase;
@@ -1048,32 +902,14 @@ export default function App(): JSX.Element {
     };
 
     try {
-      if (online) {
-        const created = await addEntry(payload);
-        setEntries((prev) => [created, ...prev]);
-        notify("Entry saved");
-      } else {
-        enqueueEntry(payload);
-        setQueueCount(queueSize());
-        setEntries((prev) => [
-          {
-            id: `offline-${Date.now()}`,
-            workspace_id: payload.workspace_id,
-            direction: payload.direction,
-            amount: payload.amount,
-            category_id: payload.category_id,
-            remarks: payload.remarks,
-            receipt_url: null,
-            entry_at: payload.entry_at,
-            created_by: payload.created_by,
-            status: "active",
-            created_at: new Date().toISOString()
-          },
-          ...prev
-        ]);
-        notify("Saved offline and queued");
+      if (!online) {
+        notify("Internet connection is required. Entries are saved only to the cloud.");
+        return;
       }
 
+      const created = await addEntry(payload);
+      setEntries((prev) => [created, ...prev]);
+      notify("Entry saved");
       setQuickOpen(false);
     } catch (error) {
       notify(readError(error));
@@ -1335,7 +1171,6 @@ export default function App(): JSX.Element {
 
   const handleSignUp = async (input: SignUpInput, staySignedIn: boolean): Promise<void> => {
     await signUpWithEmail(input, staySignedIn);
-    window.localStorage.setItem(WELCOME_PENDING_EMAIL_KEY, input.email.trim().toLowerCase());
   };
 
   const handleGoogle = async (emailHint: string | undefined, staySignedIn: boolean): Promise<void> => {
@@ -1374,18 +1209,11 @@ export default function App(): JSX.Element {
     }
 
     if (!online) {
-      return "Offline mode: entries are saved securely on this device and will sync automatically when internet is back.";
-    }
-
-    if (queueCount > 0) {
-      if (syncingQueue) {
-        return `Sync in progress: ${queueCount} offline entr${queueCount === 1 ? "y" : "ies"} pending upload.`;
-      }
-      return syncIssue || `${queueCount} offline entr${queueCount === 1 ? "y is" : "ies are"} pending upload.`;
+      return "You are offline. This app now saves data only to the cloud, so reconnect before making changes.";
     }
 
     return "";
-  }, [context, online, queueCount, syncingQueue, syncIssue]);
+  }, [context, online]);
 
   if (!hasSupabaseConfig) {
     return (
@@ -1453,7 +1281,6 @@ export default function App(): JSX.Element {
         notificationPermission={notificationPermission}
         installAvailable={Boolean(installPromptEvent) || /iPhone|iPad|iPod/i.test(navigator.userAgent)}
         online={online}
-        queueCount={queueCount}
         syncBanner={syncBanner}
       >
         {tab === "dashboard" && (

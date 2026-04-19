@@ -3,7 +3,7 @@ import { BrandLogo } from "@/components/common/BrandLogo";
 import { NeonCard } from "@/components/common/NeonCard";
 import { countries, detectCountryPreference, findCountryByCode, normalizePhone } from "@/data/countries";
 import type { SignUpInput } from "@/hooks/useAuthSession";
-import { getRememberSessionPreference, setRememberSessionPreference, supabaseUrl } from "@/lib/supabase";
+import { supabaseUrl } from "@/lib/supabase";
 
 interface AuthPageProps {
   onSignIn: (email: string, password: string, staySignedIn: boolean) => Promise<void>;
@@ -12,13 +12,6 @@ interface AuthPageProps {
 }
 
 type AuthMode = "signin" | "signup";
-const OAUTH_LAST_ERROR_KEY = "cashbook:oauth-last-error";
-const OAUTH_ERROR_MAX_AGE_MS = 2 * 60 * 1000;
-
-interface OAuthLastErrorPayload {
-  message: string;
-  createdAt: number;
-}
 
 function mapAuthError(error: unknown, fallback: string): string {
   const raw = error instanceof Error ? error.message : fallback;
@@ -58,40 +51,8 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
   const [confirmPassword, setConfirmPassword] = useState("");
   const [countryCode, setCountryCode] = useState(defaultCountry.code);
   const [mobile, setMobile] = useState("");
-  const [staySignedIn, setStaySignedIn] = useState<boolean>(() => getRememberSessionPreference());
 
   const selectedCountry = findCountryByCode(countryCode) ?? defaultCountry;
-  const handleStaySignedInChange = (checked: boolean) => {
-    setStaySignedIn(checked);
-    setRememberSessionPreference(checked);
-  };
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const raw = window.sessionStorage.getItem(OAUTH_LAST_ERROR_KEY);
-    if (!raw) {
-      return;
-    }
-
-    let message = "";
-    let createdAt = 0;
-    try {
-      const parsed = JSON.parse(raw) as Partial<OAuthLastErrorPayload>;
-      message = typeof parsed.message === "string" ? parsed.message : "";
-      createdAt = typeof parsed.createdAt === "number" ? parsed.createdAt : 0;
-    } catch {
-      // Legacy plain-string values should be auto-cleared and not re-shown.
-      message = "";
-      createdAt = 0;
-    }
-
-    if (message && createdAt && Date.now() - createdAt <= OAUTH_ERROR_MAX_AGE_MS) {
-      setError(message);
-    }
-    window.sessionStorage.removeItem(OAUTH_LAST_ERROR_KEY);
-  }, []);
 
   const submitSignIn = async (event: FormEvent) => {
     event.preventDefault();
@@ -100,7 +61,7 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
     setMessage("");
 
     try {
-      await onSignIn(signinEmail, signinPassword, staySignedIn);
+      await onSignIn(signinEmail, signinPassword, false);
       setMessage("Signed in successfully.");
     } catch (err) {
       setError(mapAuthError(err, "Sign in failed."));
@@ -137,7 +98,7 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
           country: selectedCountry.code,
           currency: selectedCountry.currency
         },
-        staySignedIn
+        false
       );
 
       setMessage("Account created. Check your email to verify, then sign in.");
@@ -163,7 +124,7 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
 
     try {
       const emailHint = (mode === "signin" ? signinEmail : signupEmail).trim();
-      await onGoogle(emailHint || undefined, staySignedIn);
+      await onGoogle(emailHint || undefined, false);
     } catch (err) {
       const raw = mapAuthError(err, "Google sign in failed.");
       if (raw.toLowerCase().includes("provider is not enabled")) {
@@ -239,18 +200,6 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
                 onChange={(event) => setSigninPassword(event.target.value)}
                 placeholder="Enter password"
               />
-
-              <label className="auth-remember-row" htmlFor="stay-signed-in">
-                <input
-                  id="stay-signed-in"
-                  className="auth-remember-input"
-                  type="checkbox"
-                  checked={staySignedIn}
-                  onChange={(event) => handleStaySignedInChange(event.target.checked)}
-                />
-                <span>Stay signed in on this device</span>
-              </label>
-
               <button className="primary-btn" type="submit" disabled={busy}>
                 {busy ? "Signing in..." : "Sign In"}
               </button>
@@ -317,18 +266,6 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
                 onChange={(event) => setSignupPassword(event.target.value)}
                 placeholder="Create password"
               />
-
-              <label className="auth-remember-row" htmlFor="stay-signed-in-signup">
-                <input
-                  id="stay-signed-in-signup"
-                  className="auth-remember-input"
-                  type="checkbox"
-                  checked={staySignedIn}
-                  onChange={(event) => handleStaySignedInChange(event.target.checked)}
-                />
-                <span>Stay signed in on this device</span>
-              </label>
-
               <label htmlFor="signup-confirm-password">Confirm Password</label>
               <input
                 id="signup-confirm-password"

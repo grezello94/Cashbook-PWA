@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { setRememberSessionPreference, supabase, supabaseAnonKey, supabaseUrl } from "@/lib/supabase";
+import { supabase, supabaseAnonKey, supabaseUrl } from "@/lib/supabase";
 import { trackTelemetry } from "@/lib/telemetry";
 
 export interface SignUpInput {
@@ -25,8 +25,6 @@ interface AuthSettings {
   external?: Record<string, boolean>;
 }
 
-const OAUTH_EMAIL_HINT_KEY = "cashbook:oauth-google-email-hint";
-const OAUTH_LAST_ERROR_KEY = "cashbook:oauth-last-error";
 const AUTH_NETWORK_RETRY_ATTEMPTS = 2;
 const AUTH_NETWORK_RETRY_BASE_DELAY_MS = 350;
 const AUTH_NETWORK_ATTEMPT_TIMEOUT_MS = 5000;
@@ -171,20 +169,6 @@ async function signInWithRelay(email: string, password: string): Promise<RelaySi
   };
 }
 
-function clearOAuthEmailHint(): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.sessionStorage.removeItem(OAUTH_EMAIL_HINT_KEY);
-}
-
-function clearOAuthLastError(): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.sessionStorage.removeItem(OAUTH_LAST_ERROR_KEY);
-}
-
 async function isGoogleProviderEnabled(): Promise<boolean> {
   if (!supabaseUrl || !supabaseAnonKey) {
     return false;
@@ -219,18 +203,11 @@ export function useAuthSession(): AuthHook {
       return;
     }
     const sb = supabase;
-    clearOAuthEmailHint();
-    clearOAuthLastError();
 
     sb.auth
       .getSession()
       .then(({ data }) => {
         const initialSession = data.session ?? null;
-
-        if (initialSession) {
-          clearOAuthEmailHint();
-          clearOAuthLastError();
-        }
 
         setSession(initialSession);
       })
@@ -245,11 +222,6 @@ export function useAuthSession(): AuthHook {
       });
 
     const { data } = sb.auth.onAuthStateChange((event, current) => {
-      if (current) {
-        clearOAuthEmailHint();
-        clearOAuthLastError();
-      }
-
       if (event === "TOKEN_REFRESHED") {
         return;
       }
@@ -275,9 +247,7 @@ export function useAuthSession(): AuthHook {
       throw new Error("Supabase is not configured");
     }
     const sb = supabase;
-    setRememberSessionPreference(staySignedIn);
-    clearOAuthEmailHint();
-    clearOAuthLastError();
+    void staySignedIn;
 
     const emailTrimmed = email.trim();
     const emailLower = emailTrimmed.toLowerCase();
@@ -348,9 +318,7 @@ export function useAuthSession(): AuthHook {
       throw new Error("Supabase is not configured");
     }
     const sb = supabase;
-    setRememberSessionPreference(staySignedIn);
-    clearOAuthEmailHint();
-    clearOAuthLastError();
+    void staySignedIn;
 
     const {
       data: { session: activeSession }
@@ -396,11 +364,9 @@ export function useAuthSession(): AuthHook {
       throw new Error("Supabase is not configured");
     }
     const sb = supabase;
-    setRememberSessionPreference(staySignedIn);
+    void staySignedIn;
 
     const normalizedEmailHint = emailHint?.trim().toLowerCase() ?? "";
-    clearOAuthLastError();
-    clearOAuthEmailHint();
 
     const {
       data: { session: activeSession }
@@ -445,7 +411,6 @@ export function useAuthSession(): AuthHook {
       });
       redirectUrl = response.data?.url ?? "";
     } catch (error) {
-      clearOAuthEmailHint();
       throw error;
     }
 
@@ -461,8 +426,6 @@ export function useAuthSession(): AuthHook {
       return;
     }
 
-    clearOAuthEmailHint();
-    clearOAuthLastError();
     const { error } = await supabase.auth.signOut();
     if (error) {
       throw error;
