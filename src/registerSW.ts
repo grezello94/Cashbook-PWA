@@ -11,11 +11,7 @@ function clearAppBrowserStorage(): void {
     const keysToDelete: string[] = [];
     for (let index = 0; index < storage.length; index += 1) {
       const key = storage.key(index) ?? "";
-      if (
-        key.startsWith("cashbook:") ||
-        key.startsWith("cashbook.") ||
-        (key.startsWith("sb-") && key.includes("-auth-token"))
-      ) {
+      if (key.startsWith("cashbook:") || key.startsWith("cashbook.")) {
         keysToDelete.push(key);
       }
     }

@@ -7,6 +7,12 @@ import { detectCountryPreference } from "@/data/countries";
 import type { SignUpInput } from "@/hooks/useAuthSession";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import {
+  clearAppErrorLogEntries,
+  listAppErrorLogEntries,
+  recordAppError,
+  type AppErrorLogEntry
+} from "@/lib/errorLog";
 import { formatCurrency, timeInTimeZoneHHmm, todayIsoDate, zonedDateTimeToIso } from "@/lib/format";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 import { AuthPage } from "@/pages/AuthPage";
@@ -15,6 +21,7 @@ import { HistoryPage } from "@/pages/HistoryPage";
 import { InviteInboxPage } from "@/pages/InviteInboxPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
 import { ProfileSetupPage } from "@/pages/ProfileSetupPage";
+import { SettingsPage } from "@/pages/SettingsPage";
 import { TeamPage } from "@/pages/TeamPage";
 import { generateAICategories } from "@/services/aiCategories";
 import type { AICategorySuggestion } from "@/services/aiCategories";
@@ -23,6 +30,7 @@ import { addAICategories, addManualCategory, archiveCategory, listCategories, se
 import { listPendingDeleteRequests, requestDelete, reviewDeleteRequest } from "@/services/deleteRequests";
 import { addEntry, deleteEntryDirect, listEntries } from "@/services/entries";
 import {
+  cancelWorkspaceAccessRequest,
   grantMemberAccessByContact,
   listMyWorkspaceAccessRequests,
   listWorkspaceAccessRequestsSent,
@@ -147,6 +155,7 @@ export default function App(): JSX.Element {
   const [temporaryAccessAvailable, setTemporaryAccessAvailable] = useState(true);
   const [tab, setTab] = useState<AppTab>("dashboard");
   const [message, setMessage] = useState<string>("");
+  const [errorLogEntries, setErrorLogEntries] = useState<AppErrorLogEntry[]>(() => listAppErrorLogEntries());
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
     typeof Notification === "undefined" ? "unsupported" : Notification.permission
   );
@@ -166,6 +175,7 @@ export default function App(): JSX.Element {
   const [welcomeName, setWelcomeName] = useState("");
   const [showJoinRequestPrompt, setShowJoinRequestPrompt] = useState(false);
   const accountRestoreRef = useRef(false);
+  const contextRef = useRef<WorkspaceContext | null>(null);
   const lastUserIdRef = useRef<string>("");
   const quickAmountInputRef = useRef<HTMLInputElement | null>(null);
   const lastHapticAtRef = useRef(0);
@@ -231,6 +241,10 @@ export default function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
+    contextRef.current = context;
+  }, [context]);
+
+  useEffect(() => {
     if (lastUserIdRef.current === userId) {
       return;
     }
@@ -292,9 +306,63 @@ export default function App(): JSX.Element {
     return () => window.clearTimeout(timer);
   }, [message]);
 
-  const notify = (text: string): void => {
+  const notify = useCallback((text: string): void => {
     setMessage(text);
-  };
+  }, []);
+
+  const refreshErrorLog = useCallback(() => {
+    setErrorLogEntries(listAppErrorLogEntries());
+  }, []);
+
+  const reportError = useCallback(
+    (location: string, error: unknown, detail?: string) => {
+      recordAppError({
+        location,
+        error,
+        detail
+      });
+      refreshErrorLog();
+    },
+    [refreshErrorLog]
+  );
+
+  const notifyError = useCallback(
+    (location: string, error: unknown, detail?: string) => {
+      reportError(location, error, detail);
+      notify(readError(error));
+    },
+    [reportError, notify]
+  );
+
+  const clearErrorLog = useCallback(() => {
+    clearAppErrorLogEntries();
+    refreshErrorLog();
+    notify("Error log cleared");
+  }, [refreshErrorLog, notify]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const onError = (event: ErrorEvent) => {
+      const source = event.filename
+        ? `${event.filename}:${event.lineno || 0}:${event.colno || 0}`
+        : "unknown-source";
+      reportError(`window.error @ ${source}`, event.error ?? new Error(event.message || "Window error"));
+    };
+
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      reportError("window.unhandledrejection", event.reason);
+    };
+
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onUnhandledRejection);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onUnhandledRejection);
+    };
+  }, [reportError]);
 
   useEffect(() => {
     const onBeforeInstallPrompt = (event: Event) => {
@@ -333,7 +401,7 @@ export default function App(): JSX.Element {
         notify("Account deleted. Your data is archived and access has been removed.");
         await signOut();
       } catch (error) {
-        notify(readError(error));
+        notifyError("App.confirmAccountDeletion", error);
       } finally {
         const cleanUrl = new URL(window.location.href);
         cleanUrl.searchParams.delete("account_delete_token");
@@ -358,7 +426,8 @@ export default function App(): JSX.Element {
       } else {
         notify("Notification permission was not granted");
       }
-    } catch {
+    } catch (error) {
+      reportError("App.enableNotifications", error);
       notify("Could not enable notifications");
     }
   };
@@ -500,9 +569,10 @@ export default function App(): JSX.Element {
         setPendingAccessRequests([]);
         return [];
       }
+      reportError("App.refreshAccessRequests", error);
       throw error;
     }
-  }, []);
+  }, [reportError]);
 
   const refreshSentAccessRequests = useCallback(async (): Promise<void> => {
     if (!workspaceId) {
@@ -516,11 +586,12 @@ export default function App(): JSX.Element {
       setSentAccessRequests(rows);
       setSentAccessRequestsError("");
     } catch (error) {
+      reportError("App.refreshSentAccessRequests", error);
       const message = normalizeSentRequestError(error);
       setSentAccessRequests([]);
       setSentAccessRequestsError(message);
     }
-  }, [workspaceId]);
+  }, [workspaceId, reportError]);
 
   const openJoinWorkspace = async (): Promise<number> => {
     try {
@@ -528,7 +599,7 @@ export default function App(): JSX.Element {
       const requests = await refreshAccessRequests();
       return requests.length;
     } catch (error) {
-      notify(readError(error));
+      notifyError("App.openJoinWorkspace", error);
       throw error;
     }
   };
@@ -621,7 +692,7 @@ export default function App(): JSX.Element {
 
             notify("Your account is active again. Continue setup to start fresh.");
           } catch (restoreError) {
-            notify(readError(restoreError));
+            notifyError("App.restoreDeletedAccount", restoreError);
             await signOut();
             return;
           } finally {
@@ -651,14 +722,20 @@ export default function App(): JSX.Element {
 
         setNeedsProfileSetup(false);
         await bootstrapWorkspace(userId);
-        void refreshAccessRequests().catch(() => {
-          // Non-blocking during boot for faster first paint.
-        });
+        void refreshAccessRequests()
+          .then((requests) => {
+            if (!contextRef.current && requests.length > 0) {
+              setWorkspaceEntryMode("join");
+            }
+          })
+          .catch((error) => {
+            reportError("App.bootstrap.refreshAccessRequests", error);
+          });
         void detectTemporaryAccessAvailability().catch(() => {
           // Optional capability check; do not block initial app load.
         });
       } catch (error) {
-        notify(readError(error));
+        notifyError("App.bootstrap", error);
       } finally {
         setLoading(false);
       }
@@ -670,7 +747,9 @@ export default function App(): JSX.Element {
     refreshAccessRequests,
     detectTemporaryAccessAvailability,
     signOut,
-    clearWorkspaceState
+    clearWorkspaceState,
+    notifyError,
+    reportError
   ]);
 
   useEffect(() => {
@@ -736,6 +815,78 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     const sb = supabase;
+    const canManageUsers = Boolean(context?.member.role === "admin" || context?.member.can_manage_users);
+    if (!sb || !workspaceId || !userId || !canManageUsers) {
+      return;
+    }
+
+    const channel = (sb
+      .channel(`workspace-access-requests-sent-${workspaceId}`) as any)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "workspace_access_requests",
+          filter: `workspace_id=eq.${workspaceId}`
+        },
+        (payload: {
+          eventType: string;
+          new?: { status?: string };
+        }) => {
+          const nextStatus = payload.new?.status ?? "";
+          void refreshSentAccessRequests();
+
+          if (payload.eventType === "UPDATE" && nextStatus === "accepted") {
+            void listWorkspaceMembers(workspaceId)
+              .then((rows) => setTeamMembers(rows))
+              .catch((error) => {
+                reportError("App.workspaceAccessRequestsSentChannel.listWorkspaceMembers", error);
+              });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void sb.removeChannel(channel);
+    };
+  }, [context, workspaceId, userId, refreshSentAccessRequests, reportError]);
+
+  useEffect(() => {
+    const sb = supabase;
+    const canManageUsers = Boolean(context?.member.role === "admin" || context?.member.can_manage_users);
+    if (!sb || !workspaceId || !userId || !canManageUsers) {
+      return;
+    }
+
+    const channel = (sb
+      .channel(`workspace-members-admin-${workspaceId}`) as any)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "workspace_members",
+          filter: `workspace_id=eq.${workspaceId}`
+        },
+        () => {
+          void listWorkspaceMembers(workspaceId)
+            .then((rows) => setTeamMembers(rows))
+            .catch((error) => {
+              reportError("App.workspaceMembersAdminChannel.listWorkspaceMembers", error);
+            });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void sb.removeChannel(channel);
+    };
+  }, [context, workspaceId, userId, reportError]);
+
+  useEffect(() => {
+    const sb = supabase;
     if (!sb || !userId) {
       return;
     }
@@ -770,13 +921,13 @@ export default function App(): JSX.Element {
                 void handleAccessRevoked("Your access to this workspace was revoked. Choose how to continue.");
                 return;
               }
-              setMessage(readError(error));
+              notifyError("App.workspaceMembersSelfChannel.loadWorkspace", error);
             });
             return;
           }
 
-          void bootstrapWorkspace(userId).catch(() => {
-            // No-op: next auth/data cycle will retry.
+          void bootstrapWorkspace(userId).catch((error) => {
+            reportError("App.workspaceMembersSelfChannel.bootstrapWorkspace", error);
           });
         }
       )
@@ -817,7 +968,9 @@ export default function App(): JSX.Element {
             showEntryInAppAlert(payload.new);
             void showEntrySystemNotification(payload.new);
           }
-          void loadWorkspace(workspaceId, userId);
+          void loadWorkspace(workspaceId, userId).catch((error) => {
+            reportError("App.workspaceLiveChannel.entries.loadWorkspace", error);
+          });
         }
       )
       .on(
@@ -829,7 +982,9 @@ export default function App(): JSX.Element {
           filter: `workspace_id=eq.${workspaceId}`
         },
         () => {
-          void loadWorkspace(workspaceId, userId);
+          void loadWorkspace(workspaceId, userId).catch((error) => {
+            reportError("App.workspaceLiveChannel.deleteRequests.loadWorkspace", error);
+          });
         }
       )
       .subscribe();
@@ -837,7 +992,7 @@ export default function App(): JSX.Element {
     return () => {
       void sb.removeChannel(channel);
     };
-  }, [workspaceId, userId, loadWorkspace, showEntrySystemNotification, showEntryInAppAlert]);
+  }, [workspaceId, userId, loadWorkspace, showEntrySystemNotification, showEntryInAppAlert, reportError]);
 
   const openQuickAdd = (direction: CashDirection) => {
     setQuickDirection(direction);
@@ -912,7 +1067,7 @@ export default function App(): JSX.Element {
       notify("Entry saved");
       setQuickOpen(false);
     } catch (error) {
-      notify(readError(error));
+      notifyError("App.saveQuickEntry", error);
     }
   };
 
@@ -938,7 +1093,7 @@ export default function App(): JSX.Element {
       await requestDelete(context.workspace.id, entry.id, userId, reason.trim());
       notify("Delete request sent to admin");
     } catch (error) {
-      notify(readError(error));
+      notifyError("App.deleteEntry", error);
     }
   };
 
@@ -952,7 +1107,7 @@ export default function App(): JSX.Element {
       await loadWorkspace(context.workspace.id, userId);
       notify(approved ? "Delete request approved" : "Delete request rejected");
     } catch (error) {
-      notify(readError(error));
+      notifyError("App.reviewDelete", error);
     }
   };
 
@@ -1034,6 +1189,34 @@ export default function App(): JSX.Element {
     notify("Access revoked");
   };
 
+  const cancelSentAccessRequestById = async (requestId: string): Promise<void> => {
+    if (!workspaceId) {
+      return;
+    }
+
+    setSentAccessRequests((prev) =>
+      prev.map((item) =>
+        item.id === requestId
+          ? {
+              ...item,
+              status: "cancelled",
+              reviewed_at: new Date().toISOString(),
+              note: item.note || "Cancelled by admin"
+            }
+          : item
+      )
+    );
+
+    try {
+      await cancelWorkspaceAccessRequest(requestId);
+      await refreshSentAccessRequests();
+      notify("Access request cancelled.");
+    } catch (error) {
+      notifyError("App.cancelSentAccessRequestById", error);
+      await refreshSentAccessRequests();
+    }
+  };
+
   const setMemberTemporaryDisabled = async (targetUserId: string, disabled: boolean): Promise<void> => {
     if (!workspaceId) {
       return;
@@ -1063,7 +1246,7 @@ export default function App(): JSX.Element {
       }
       notify(decision === "accept" ? "Access request accepted." : "Access request rejected.");
     } catch (error) {
-      notify(readError(error));
+      notifyError("App.respondAccessRequest", error);
     } finally {
       setRespondingAccessRequestId("");
     }
@@ -1110,7 +1293,7 @@ export default function App(): JSX.Element {
       await requestAccountDeletion(session.user.email);
       notify("Deletion confirmation link sent to your registered email.");
     } catch (error) {
-      notify(readError(error));
+      notifyError("App.sendAccountDeletionLink", error);
     } finally {
       setAccountDeletionSending(false);
     }
@@ -1132,7 +1315,7 @@ export default function App(): JSX.Element {
       await loadWorkspace(createdWorkspaceId, userId);
       notify("Workspace ready");
     } catch (error) {
-      notify(readError(error));
+      notifyError("App.createWorkspace", error);
     } finally {
       setLoading(false);
     }
@@ -1159,7 +1342,7 @@ export default function App(): JSX.Element {
       setWorkspaceEntryMode("decide");
       notify("Profile saved");
     } catch (error) {
-      notify(readError(error));
+      notifyError("App.completeProfile", error);
     } finally {
       setLoading(false);
     }
@@ -1182,18 +1365,21 @@ export default function App(): JSX.Element {
       await signOut();
       notify("Signed out");
     } catch (error) {
-      notify(readError(error));
+      notifyError("App.handleSignOut", error);
     }
   };
 
   const reviewJoinRequestsFromPrompt = async (): Promise<void> => {
-    clearWorkspaceState();
     setShowJoinRequestPrompt(false);
-    setWorkspaceEntryMode("join");
     try {
       await refreshAccessRequests();
+      if (context) {
+        setTab("settings");
+      } else {
+        setWorkspaceEntryMode("join");
+      }
     } catch (error) {
-      notify(readError(error));
+      notifyError("App.reviewJoinRequestsFromPrompt", error);
     }
   };
 
@@ -1233,7 +1419,14 @@ export default function App(): JSX.Element {
   }
 
   if (!session) {
-    return <AuthPage onSignIn={handleSignIn} onSignUp={handleSignUp} onGoogle={handleGoogle} />;
+    return (
+      <AuthPage
+        onSignIn={handleSignIn}
+        onSignUp={handleSignUp}
+        onGoogle={handleGoogle}
+        onReportError={reportError}
+      />
+    );
   }
 
   if (needsProfileSetup) {
@@ -1244,7 +1437,7 @@ export default function App(): JSX.Element {
     if (workspaceEntryMode === "decide" || workspaceEntryMode === "join") {
       return (
         <InviteInboxPage
-          mode={workspaceEntryMode === "join" ? "join" : "decide"}
+          mode={workspaceEntryMode === "join" || pendingAccessRequests.length > 0 ? "join" : "decide"}
           workspaceLabel="Unnamed Workspace"
           invites={pendingAccessRequests}
           respondingId={respondingAccessRequestId}
@@ -1271,7 +1464,7 @@ export default function App(): JSX.Element {
     <>
       <AppShell
         title={context.workspace.name}
-        subtitle={`${context.workspace.industry} | ${context.member.role.toUpperCase()}`}
+        subtitle={`${context.workspace.industry} cashbook • ${context.member.role === "admin" ? "Admin access" : "Editor access"}`}
         tab={tab}
         onTabChange={setTab}
         onSignOut={handleSignOut}
@@ -1329,9 +1522,22 @@ export default function App(): JSX.Element {
             onUpdateTimezone={saveWorkspaceTimezone}
             onRequestDeleteAccount={sendAccountDeletionLink}
             deletingAccount={accountDeletionSending}
+            incomingAccessRequests={pendingAccessRequests}
+            respondingId={respondingAccessRequestId}
+            onRespond={respondAccessRequest}
+            onRefreshIncomingAccessRequests={refreshAccessRequests}
             sentAccessRequests={sentAccessRequests}
             sentAccessRequestsError={sentAccessRequestsError}
             onRefreshSentAccessRequests={refreshSentAccessRequests}
+            onCancelSentAccessRequest={cancelSentAccessRequestById}
+            onReportError={reportError}
+          />
+        )}
+
+        {tab === "settings" && (
+          <SettingsPage
+            errorLogEntries={errorLogEntries}
+            onClearErrorLog={clearErrorLog}
           />
         )}
       </AppShell>

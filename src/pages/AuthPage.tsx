@@ -9,6 +9,7 @@ interface AuthPageProps {
   onSignIn: (email: string, password: string, staySignedIn: boolean) => Promise<void>;
   onSignUp: (input: SignUpInput, staySignedIn: boolean) => Promise<void>;
   onGoogle: (emailHint: string | undefined, staySignedIn: boolean) => Promise<void>;
+  onReportError: (location: string, error: unknown, detail?: string) => void;
 }
 
 type AuthMode = "signin" | "signup";
@@ -34,7 +35,7 @@ function mapAuthError(error: unknown, fallback: string): string {
   return raw;
 }
 
-export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.Element {
+export function AuthPage({ onSignIn, onSignUp, onGoogle, onReportError }: AuthPageProps): JSX.Element {
   const defaultCountry = useMemo(() => detectCountryPreference(), []);
 
   const [mode, setMode] = useState<AuthMode>("signin");
@@ -64,6 +65,7 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
       await onSignIn(signinEmail, signinPassword, false);
       setMessage("Signed in successfully.");
     } catch (err) {
+      onReportError("AuthPage.submitSignIn", err);
       setError(mapAuthError(err, "Sign in failed."));
     } finally {
       setBusy(false);
@@ -106,6 +108,7 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
       setSigninEmail(signupEmail.trim());
       setSigninPassword("");
     } catch (err) {
+      onReportError("AuthPage.submitSignUp", err);
       const raw = mapAuthError(err, "Sign up failed.");
       if (raw.toLowerCase().includes("already")) {
         setError("This email is already registered. Use Sign In to continue.");
@@ -126,6 +129,7 @@ export function AuthPage({ onSignIn, onSignUp, onGoogle }: AuthPageProps): JSX.E
       const emailHint = (mode === "signin" ? signinEmail : signupEmail).trim();
       await onGoogle(emailHint || undefined, false);
     } catch (err) {
+      onReportError("AuthPage.continueWithGoogle", err);
       const raw = mapAuthError(err, "Google sign in failed.");
       if (raw.toLowerCase().includes("provider is not enabled")) {
         setError("Google login is not enabled in Supabase yet. Use email/password or enable Google provider.");

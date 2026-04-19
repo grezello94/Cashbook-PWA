@@ -10,13 +10,15 @@ interface NeonCardProps {
 export function NeonCard({ title, subtitle, children, className }: NeonCardProps): JSX.Element {
   return (
     <section className={`neon-card ${className ?? ""}`.trim()}>
+      <span className="neon-card-glow" aria-hidden="true" />
+      <span className="neon-card-grid" aria-hidden="true" />
       {(title || subtitle) && (
         <header className="card-head">
           {title && <h3>{title}</h3>}
           {subtitle && <p>{subtitle}</p>}
         </header>
       )}
-      {children}
+      <div className="neon-card-body">{children}</div>
     </section>
   );
 }

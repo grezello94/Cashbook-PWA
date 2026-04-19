@@ -77,13 +77,28 @@ export function DashboardPage(props: DashboardPageProps): JSX.Element {
 
   return (
     <section className="stack-lg">
-      <NeonCard title="Today" subtitle={today}>
-        <p className={`hud-balance ${todayBalance >= 0 ? "positive" : "negative"}`.trim()}>
-          {balanceLabel}
-        </p>
-        <div className="today-health">
-          <span className="pill">Income: {formatCurrency(todayIncome, workspace.currency)}</span>
-          <span className="pill">Expense: {formatCurrency(todayExpense, workspace.currency)}</span>
+      <NeonCard title="Today" subtitle={today} className="dashboard-hero-card">
+        <div className="dashboard-hero">
+          <div className="dashboard-hero-main">
+            <p className={`hud-balance ${todayBalance >= 0 ? "positive" : "negative"}`.trim()}>
+              {balanceLabel}
+            </p>
+            <div className="today-kpi-row">
+              <article className="today-kpi today-kpi-income">
+                <small>Income</small>
+                <strong>{formatCurrency(todayIncome, workspace.currency)}</strong>
+              </article>
+              <article className="today-kpi today-kpi-expense">
+                <small>Expense</small>
+                <strong>{formatCurrency(todayExpense, workspace.currency)}</strong>
+              </article>
+              <article className="today-kpi today-kpi-flow">
+                <small>Entries</small>
+                <strong>{todayEntries.length}</strong>
+              </article>
+            </div>
+          </div>
+
           <div 
             className={`health-status ${aiInsight.tone}`.trim()}
             style={{ transition: "all 0.3s ease" }}
@@ -96,14 +111,15 @@ export function DashboardPage(props: DashboardPageProps): JSX.Element {
               {aiInsight.text}
             </small>
           </div>
-        </div>
-        <div className="dashboard-primary-actions">
-          <button className="fab-action fab-in" onClick={() => onOpenQuickAdd("cash_in")}>
-            Cash In
-          </button>
-          <button className="fab-action fab-out" onClick={() => onOpenQuickAdd("cash_out")}>
-            Cash Out
-          </button>
+
+          <div className="dashboard-primary-actions">
+            <button className="fab-action fab-in" onClick={() => onOpenQuickAdd("cash_in")}>
+              Cash In
+            </button>
+            <button className="fab-action fab-out" onClick={() => onOpenQuickAdd("cash_out")}>
+              Cash Out
+            </button>
+          </div>
         </div>
       </NeonCard>
 

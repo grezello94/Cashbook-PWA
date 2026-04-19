@@ -303,6 +303,17 @@ export async function respondWorkspaceAccessRequest(requestId: string, decision:
   }
 }
 
+export async function cancelWorkspaceAccessRequest(requestId: string): Promise<void> {
+  const sb = requireSupabase();
+  const { error } = await sb.rpc("cancel_workspace_access_request", {
+    _request_id: requestId
+  });
+
+  if (error) {
+    throw error;
+  }
+}
+
 export async function listWorkspaceAccessRequestsSent(workspaceId: string): Promise<WorkspaceAccessRequestSent[]> {
   const sb = requireSupabase();
   const { data, error } = await sb.rpc("list_workspace_access_requests_sent", {

@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { BrandLogo } from "@/components/common/BrandLogo";
 
-export type AppTab = "dashboard" | "history" | "team";
+export type AppTab = "dashboard" | "history" | "team" | "settings";
 
 interface AppShellProps {
   title: string;
@@ -49,11 +49,24 @@ export function AppShell(props: AppShellProps): JSX.Element {
 
   return (
     <div className="app-shell">
+      <div className="app-shell-backdrop" aria-hidden="true">
+        <span className="app-shell-orb app-shell-orb-left" />
+        <span className="app-shell-orb app-shell-orb-right" />
+        <span className="app-shell-grid" />
+      </div>
+
       <header className="topbar">
         <div className="topbar-left">
-          <BrandLogo compact className="header-logo" />
-          <h1>{title}</h1>
-          <p className="topbar-subtitle">{subtitle}</p>
+          <div className="topbar-brand">
+            <BrandLogo compact className="header-logo" />
+            <div className="topbar-copy">
+              <h1>{title}</h1>
+              <div className="topbar-meta">
+                <span className="topbar-eyebrow">Daily Cashbook</span>
+                <p className="topbar-subtitle">{subtitle}</p>
+              </div>
+            </div>
+          </div>
           <nav className="header-tabs topbar-tabs">
             <button className={tab === "dashboard" ? "active" : ""} onClick={() => pickTab("dashboard")}>
               Dashboard
@@ -63,6 +76,9 @@ export function AppShell(props: AppShellProps): JSX.Element {
             </button>
             <button className={tab === "team" ? "active" : ""} onClick={() => pickTab("team")}>
               Team
+            </button>
+            <button className={tab === "settings" ? "active" : ""} onClick={() => pickTab("settings")}>
+              Settings
             </button>
           </nav>
         </div>
@@ -109,6 +125,9 @@ export function AppShell(props: AppShellProps): JSX.Element {
         </button>
         <button className={tab === "team" ? "active" : ""} onClick={() => pickTab("team")}>
           Team
+        </button>
+        <button className={tab === "settings" ? "active" : ""} onClick={() => pickTab("settings")}>
+          Settings
         </button>
       </nav>
     </div>

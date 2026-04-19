@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { NeonCard } from "@/components/common/NeonCard";
-import type { AppRole, WorkspaceAccessRequestSent, WorkspaceMember, WorkspaceMemberDirectory } from "@/types/domain";
+import type { AppRole, WorkspaceAccessRequest, WorkspaceAccessRequestSent, WorkspaceMember, WorkspaceMemberDirectory } from "@/types/domain";
 
 interface TeamPageProps {
   member: WorkspaceMember;
@@ -31,9 +31,15 @@ interface TeamPageProps {
   onUpdateTimezone: (timezone: string) => Promise<void>;
   onRequestDeleteAccount: () => Promise<void>;
   deletingAccount: boolean;
+  incomingAccessRequests: WorkspaceAccessRequest[];
+  respondingId: string;
+  onRespond: (requestId: string, decision: "accept" | "reject") => Promise<void>;
+  onRefreshIncomingAccessRequests: () => Promise<unknown>;
   sentAccessRequests: WorkspaceAccessRequestSent[];
   sentAccessRequestsError?: string;
   onRefreshSentAccessRequests: () => Promise<void>;
+  onCancelSentAccessRequest: (requestId: string) => Promise<void>;
+  onReportError: (location: string, error: unknown, detail?: string) => void;
 }
 
 export function TeamPage(props: TeamPageProps): JSX.Element {
@@ -52,9 +58,15 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
     onUpdateTimezone,
     onRequestDeleteAccount,
     deletingAccount,
+    incomingAccessRequests,
+    respondingId,
+    onRespond,
+    onRefreshIncomingAccessRequests,
     sentAccessRequests,
     sentAccessRequestsError = "",
-    onRefreshSentAccessRequests
+    onRefreshSentAccessRequests,
+    onCancelSentAccessRequest,
+    onReportError
   } = props;
 
   const [contactType, setContactType] = useState<"email" | "phone">("email");
@@ -70,7 +82,9 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
   const [timezoneEditOpen, setTimezoneEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [refreshingIncomingRequests, setRefreshingIncomingRequests] = useState(false);
   const [refreshingSentRequests, setRefreshingSentRequests] = useState(false);
+  const [cancellingSentRequestId, setCancellingSentRequestId] = useState("");
 
   const normalizePhone = (value: string): string => value.replace(/[^\d+]/g, "");
 
@@ -94,12 +108,6 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
 
   const canManageUsers = member.role === "admin";
   const canEditTimezone = member.role === "admin";
-  const accessSummary =
-    member.role === "admin"
-      ? "Role: Admin (Full access)"
-      : `Role: Editor (Delete entries: ${member.can_delete_entries ? "Yes" : "No"}, Manage categories: ${
-          member.can_manage_categories ? "Yes" : "No"
-        }, Manage users: ${member.can_manage_users ? "Yes" : "No"}, Dashboard: ${member.dashboard_scope})`;
   const displayName = currentUserProfile.fullName || currentUserProfile.email || "User";
   const initials = displayName
     .split(" ")
@@ -157,6 +165,11 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
       return aLabel.localeCompare(bLabel);
     });
   }, [members]);
+
+  const visibleSentAccessRequests = useMemo(
+    () => sentAccessRequests.filter((request) => request.status !== "rejected"),
+    [sentAccessRequests]
+  );
 
   const formatDateTime = (value: string): string => {
     const parsed = new Date(value);
@@ -238,6 +251,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
       setAllowDeleteForEditor(false);
       setAllowManageCategoriesForEditor(false);
     } catch (err) {
+      onReportError("TeamPage.grant", err);
       setError(grantErrorMessage(err, value));
     } finally {
       setSaving(false);
@@ -255,6 +269,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
     try {
       await onUpdateMember(targetUserId, nextRole, allowDelete, allowManageCategories);
     } catch (err) {
+      onReportError("TeamPage.updateRole", err);
       setError(readMessage(err, "Could not update member."));
     } finally {
       setEditingUserId("");
@@ -267,6 +282,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
     try {
       await onSetMemberAccessDisabled(targetUserId, disabled);
     } catch (err) {
+      onReportError("TeamPage.toggleTemporaryAccess", err);
       setError(readMessage(err, "Could not update workspace access state."));
     } finally {
       setEditingUserId("");
@@ -286,6 +302,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
     try {
       await onRevokeMember(targetUserId);
     } catch (err) {
+      onReportError("TeamPage.revoke", err);
       setError(readMessage(err, "Could not permanently revoke access."));
     } finally {
       setEditingUserId("");
@@ -304,6 +321,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
       await onUpdateTimezone(nextTimezone);
       setTimezoneEditOpen(false);
     } catch (err) {
+      onReportError("TeamPage.saveTimezone", err);
       setError(readMessage(err, "Could not update timezone."));
     } finally {
       setTimezoneSaving(false);
@@ -322,6 +340,7 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
       setDeleteOpen(false);
       setDeleteConfirmText("");
     } catch (err) {
+      onReportError("TeamPage.submitDeleteRequest", err);
       setError(readMessage(err, "Could not start account deletion."));
     }
   };
@@ -431,10 +450,6 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
             </div>
           )}
         </div>
-      </NeonCard>
-
-      <NeonCard title="Your Access">
-        <p>{accessSummary}</p>
       </NeonCard>
 
       {canManageUsers && (
@@ -588,22 +603,27 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
               const isSelf = item.user_id === currentUserId;
               const busy = editingUserId === item.user_id;
               const displayName = item.full_name || item.email || item.phone || item.user_id;
+              const roleLabel = item.role === "admin" ? "Admin" : "Editor";
 
               return (
                 <article key={item.user_id} className="member-row">
                   <div>
-                    <strong>{displayName}</strong>
+                    <div className="member-title-row">
+                      <strong>{displayName}</strong>
+                      <span className={`member-role-pill ${item.role === "admin" ? "member-role-pill-admin" : "member-role-pill-editor"}`}>
+                        {roleLabel}
+                      </span>
+                    </div>
                     <small>
                       {item.email ?? "No email"} {item.phone ? `| ${item.phone}` : ""}
                     </small>
                     <small>
-                      Role: {item.role} {item.role === "editor" ? `| Delete: ${item.can_delete_entries ? "Yes" : "No"}` : ""}
+                      {item.role === "admin"
+                        ? "Full workspace control"
+                        : `Editor permissions | Delete: ${item.can_delete_entries ? "Yes" : "No"}`}
                     </small>
                     <small>Workspace access: {item.access_disabled ? "Temporarily disabled" : "Active"}</small>
                     <div className="member-badges">
-                      <span className={`category-type-badge ${item.role === "admin" ? "category-type-expense" : "category-type-income"}`.trim()}>
-                        {item.role === "admin" ? "Admin" : "Editor"}
-                      </span>
                       {item.can_delete_entries && <span className="category-type-badge category-type-expense">Can delete</span>}
                       {item.can_manage_categories && <span className="category-type-badge category-type-income">Manage categories</span>}
                     </div>
@@ -706,9 +726,125 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
         </NeonCard>
       )}
 
+      <NeonCard title="Incoming Access Requests" subtitle="Accept or reject requests sent to your signed-in account.">
+        <div className="stack">
+          <div className="settings-identities">
+            <span className="category-type-badge category-type-neutral">
+              Email: {currentUserProfile.email || "No email on this account"}
+            </span>
+            <span className="category-type-badge category-type-neutral">
+              Phone: {currentUserProfile.phone || "No phone on this account"}
+            </span>
+          </div>
+
+          <div className="sent-requests-head">
+            <div>
+              <small className="muted">
+                If an admin sent a request to this exact email or phone, it will appear here with Accept and Reject actions.
+              </small>
+            </div>
+            <button
+              className="ghost-btn"
+              type="button"
+              disabled={refreshingIncomingRequests}
+              onClick={() => {
+                void (async () => {
+                  setRefreshingIncomingRequests(true);
+                  try {
+                    await onRefreshIncomingAccessRequests();
+                  } finally {
+                    setRefreshingIncomingRequests(false);
+                  }
+                })();
+              }}
+            >
+              {refreshingIncomingRequests ? "Refreshing..." : "Refresh"}
+            </button>
+          </div>
+
+          {!!incomingAccessRequests.length && <p className="muted">Pending requests waiting for your decision</p>}
+          {incomingAccessRequests.map((invite) => {
+            const busy = respondingId === invite.id;
+            const requester = invite.requested_by_name || invite.requested_by_email || "Workspace admin";
+            return (
+              <article
+                key={invite.id}
+                className="invite-card"
+                style={{ opacity: busy ? 0.6 : 1, transition: "opacity 0.3s ease", pointerEvents: busy ? "none" : "auto" }}
+              >
+                <div className="invite-card-head">
+                  <div>
+                    <strong>{invite.workspace_name}</strong>
+                    <small>
+                      {invite.workspace_industry} | {invite.workspace_currency} | {invite.workspace_timezone}
+                    </small>
+                  </div>
+                  <span className={`invite-role-badge ${invite.role === "admin" ? "invite-role-admin" : "invite-role-editor"}`}>
+                    {invite.role === "admin" ? "Admin Access" : "Editor Access"}
+                  </span>
+                </div>
+                <div className="invite-meta">
+                  <small>Requested by: {requester}</small>
+                  <small>Sent: {formatDateTime(invite.requested_at)}</small>
+                </div>
+                <div className="invite-perms">
+                  {invite.role === "admin" ? (
+                    <>
+                      <span className="invite-perm-chip invite-perm-admin">Full workspace control</span>
+                      <span className="invite-perm-chip invite-perm-admin">Manage users & permissions</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="invite-perm-chip invite-perm-editor">Can add/edit entries</span>
+                      <span className={`invite-perm-chip ${invite.can_delete_entries ? "invite-perm-admin" : "invite-perm-muted"}`}>
+                        {invite.can_delete_entries ? "Can delete entries" : "Delete disabled"}
+                      </span>
+                      <span className={`invite-perm-chip ${invite.can_manage_categories ? "invite-perm-admin" : "invite-perm-muted"}`}>
+                        {invite.can_manage_categories ? "Can manage categories" : "Category management disabled"}
+                      </span>
+                    </>
+                  )}
+                </div>
+                <div className="invite-actions">
+                  <button
+                    className="primary-btn"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      void onRespond(invite.id, "accept");
+                    }}
+                  >
+                    {busy ? "Saving..." : "Accept Access"}
+                  </button>
+                  <button
+                    className="reject-btn"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      void onRespond(invite.id, "reject");
+                    }}
+                  >
+                    {busy ? "Saving..." : "Reject"}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+
+          {!incomingAccessRequests.length && (
+            <p className="muted">
+              No pending access requests were found for this signed-in account. Double-check that the admin used the same email or
+              phone shown above.
+            </p>
+          )}
+        </div>
+      </NeonCard>
+
       {canManageUsers && (
         <NeonCard title="Sent Access Requests" subtitle="Requests sent to user email/mobile for this workspace">
           <div className="stack">
+            <p className="muted">Accepted users are listed above in Team Members.</p>
+
             <div className="sent-requests-head">
               <div>
                 <small className="muted">Track whether requests are pending, accepted, rejected, or cancelled.</small>
@@ -732,32 +868,58 @@ export function TeamPage(props: TeamPageProps): JSX.Element {
               </button>
             </div>
 
-            {sentAccessRequestsError && <small className="error-text">Could not load sent requests: {sentAccessRequestsError}</small>}
+	            {sentAccessRequestsError && <small className="error-text">Could not load sent requests: {sentAccessRequestsError}</small>}
 
-            <div className="sent-requests-list">
-              {sentAccessRequests.map((request) => {
-                const contact = request.target_email || request.target_phone || request.target_user_id;
-                const targetLabel = request.target_name || contact;
-                return (
-                  <article key={request.id} className="sent-request-row">
-                    <div className="sent-request-head">
-                      <strong>{targetLabel}</strong>
-                      <span className={statusClass(request.status)}>{statusLabel(request.status)}</span>
-                    </div>
-                    <small>Contact: {contact}</small>
-                    <small>
-                      Role: {request.role} | Delete: {request.can_delete_entries ? "Yes" : "No"} | Categories:{" "}
-                      {request.can_manage_categories ? "Yes" : "No"}
-                    </small>
-                    <small>Sent: {formatDateTime(request.requested_at)}</small>
-                    {request.reviewed_at && <small>Reviewed: {formatDateTime(request.reviewed_at)}</small>}
-                  </article>
-                );
-              })}
-              {!sentAccessRequests.length && !sentAccessRequestsError && (
-                <p className="muted">No access requests sent yet for this workspace.</p>
-              )}
-            </div>
+	            <div className="sent-requests-list">
+	              {visibleSentAccessRequests.map((request) => {
+	                const contact = request.target_email || request.target_phone || request.target_user_id;
+	                const targetLabel = request.target_name || contact;
+                  const busy = cancellingSentRequestId === request.id;
+	                return (
+	                  <article key={request.id} className="sent-request-row">
+	                    <div className="sent-request-head">
+	                      <div className="sent-request-title-wrap">
+                          <strong>{targetLabel}</strong>
+                          <span className={`member-role-pill ${request.role === "admin" ? "member-role-pill-admin" : "member-role-pill-editor"}`}>
+                            {request.role === "admin" ? "Admin" : "Editor"}
+                          </span>
+                        </div>
+	                      <span className={statusClass(request.status)}>{statusLabel(request.status)}</span>
+	                    </div>
+	                    <small>Contact: {contact}</small>
+	                    <small>
+	                      Delete: {request.can_delete_entries ? "Yes" : "No"} | Categories: {request.can_manage_categories ? "Yes" : "No"}
+	                    </small>
+	                    <small>Sent: {formatDateTime(request.requested_at)}</small>
+	                    {request.reviewed_at && <small>Reviewed: {formatDateTime(request.reviewed_at)}</small>}
+                      {request.status === "pending" && (
+                        <div className="sent-request-actions">
+                          <button
+                            className="ghost-btn sent-request-cancel-btn"
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              void (async () => {
+                                setCancellingSentRequestId(request.id);
+                                try {
+                                  await onCancelSentAccessRequest(request.id);
+                                } finally {
+                                  setCancellingSentRequestId("");
+                                }
+                              })();
+                            }}
+                          >
+                            {busy ? "Cancelling..." : "Cancel request"}
+                          </button>
+                        </div>
+                      )}
+	                  </article>
+	                );
+	              })}
+	              {!visibleSentAccessRequests.length && !sentAccessRequestsError && (
+	                <p className="muted">No access requests sent yet for this workspace.</p>
+	              )}
+	            </div>
           </div>
         </NeonCard>
       )}

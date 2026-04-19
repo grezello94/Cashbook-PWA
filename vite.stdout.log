@@ -1,0 +1,61 @@
+
+> cashbook-pwa@0.1.0 dev
+> vite --host 127.0.0.1
+
+Re-optimizing dependencies because lockfile has changed
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m941[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5173[22m/[39m
+[2m10:22:09 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/layout/AppShell.tsx[22m
+[2m10:22:09 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:22:09 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:22:09 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/pages/AuthPage.tsx[22m
+[2m10:22:09 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AuthPage.tsx[22m
+[2m10:22:09 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/registerSW.ts[22m
+[2m10:22:09 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/styles.css[22m
+[2m10:22:09 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:29:46 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/layout/AppShell.tsx[22m
+[2m10:30:44 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:30:50 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:31:03 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:31:07 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:31:16 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:31:31 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:31:47 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:32:12 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:32:33 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:32:42 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/TeamPage.tsx[22m
+[2m10:33:05 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AuthPage.tsx[22m
+[2m10:33:20 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:33:25 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:33:50 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:34:09 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/styles.css[22m
+[2m10:34:40 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/SettingsPage.tsx[22m
+[2m10:36:30 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:42:33 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/TeamPage.tsx[22m
+[2m10:42:33 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/SettingsPage.tsx[22m
+[2m10:42:33 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:51:31 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/TeamPage.tsx[22m
+[2m10:54:51 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m10:58:11 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/pages/AuthPage.tsx[22m
+[2m10:58:11 pm[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/registerSW.ts[22m
+[2m11:01:57 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m11:01:57 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m11:01:57 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/SettingsPage.tsx[22m
+[2m11:07:48 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/layout/AppShell.tsx[22m
+[2m11:07:48 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/common/NeonCard.tsx[22m
+[2m11:07:48 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/DashboardPage.tsx[22m
+[2m11:07:48 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/styles.css[22m
+[2m11:13:25 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/layout/AppShell.tsx[22m
+[2m11:13:25 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m11:13:25 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/styles.css[22m
+[2m11:16:35 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/layout/AppShell.tsx[22m
+[2m11:16:35 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/styles.css[22m
+[2m11:19:43 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/styles.css[22m
+[2m11:21:08 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/TeamPage.tsx[22m
+[2m11:28:06 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m11:28:06 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m11:28:34 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/TeamPage.tsx[22m
+[2m11:28:59 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m11:28:59 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/styles.css[22m
