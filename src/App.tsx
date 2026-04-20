@@ -1612,7 +1612,7 @@ export default function App(): JSX.Element {
                 Cancel
               </button>
               <button className="save-btn" onClick={saveQuickEntry}>
-                Swipe Up to Save
+                Save
               </button>
             </div>
           </div>
