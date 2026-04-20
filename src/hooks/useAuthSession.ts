@@ -386,8 +386,7 @@ export function useAuthSession(): AuthHook {
 
     const queryParams: Record<string, string> = {
       // Browser-agnostic force for account chooser + explicit consent screen.
-      prompt: "select_account consent",
-      access_type: "offline"
+      prompt: "select_account consent"
     };
     if (normalizedEmailHint.includes("@")) {
       queryParams.login_hint = normalizedEmailHint;

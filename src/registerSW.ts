@@ -3,36 +3,14 @@ function clearAppBrowserStorage(): void {
     return;
   }
 
-  const wipeStorage = (storage: Storage | null) => {
-    if (!storage) {
-      return;
-    }
-
-    const keysToDelete: string[] = [];
-    for (let index = 0; index < storage.length; index += 1) {
-      const key = storage.key(index) ?? "";
-      if (
-        key.startsWith("cashbook:") ||
-        key.startsWith("cashbook.") ||
-        (key.startsWith("sb-") && key.includes("-auth-token"))
-      ) {
-        keysToDelete.push(key);
-      }
-    }
-
-    keysToDelete.forEach((key) => {
-      storage.removeItem(key);
-    });
-  };
-
   try {
-    wipeStorage(window.localStorage);
+    window.localStorage.clear();
   } catch {
     // Ignore browser storage cleanup errors.
   }
 
   try {
-    wipeStorage(window.sessionStorage);
+    window.sessionStorage.clear();
   } catch {
     // Ignore browser storage cleanup errors.
   }
