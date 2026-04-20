@@ -6,16 +6,12 @@ export interface AppErrorLogEntry {
   detail: string;
 }
 
-const STORAGE_KEY = "cashbook:error-log";
 const MAX_ENTRIES = 50;
 const SENSITIVE_KEY_PATTERN = /(token|secret|password|authorization|cookie|api[-_]?key|apikey|jwt|session)/i;
 const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+\b/g;
 const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9\-._~+/]+=*\b/gi;
 const SUPABASE_KEY_PATTERN = /\bsb_[A-Za-z0-9_-]{20,}\b/g;
-
-function canUseStorage(): boolean {
-  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
-}
+const memoryEntries: AppErrorLogEntry[] = [];
 
 function sanitizeString(value: string): string {
   return value
@@ -98,33 +94,11 @@ function normalizeError(error: unknown): { message: string; detail: string } {
 }
 
 function readEntries(): AppErrorLogEntry[] {
-  if (!canUseStorage()) {
-    return [];
-  }
-
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return [];
-    }
-
-    const parsed = JSON.parse(raw) as AppErrorLogEntry[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  return [...memoryEntries];
 }
 
 function writeEntries(entries: AppErrorLogEntry[]): void {
-  if (!canUseStorage()) {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(0, MAX_ENTRIES)));
-  } catch {
-    // Ignore storage write failures.
-  }
+  memoryEntries.splice(0, memoryEntries.length, ...entries.slice(0, MAX_ENTRIES));
 }
 
 export function listAppErrorLogEntries(): AppErrorLogEntry[] {
@@ -132,15 +106,7 @@ export function listAppErrorLogEntries(): AppErrorLogEntry[] {
 }
 
 export function clearAppErrorLogEntries(): void {
-  if (!canUseStorage()) {
-    return;
-  }
-
-  try {
-    window.localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // Ignore storage write failures.
-  }
+  memoryEntries.splice(0, memoryEntries.length);
 }
 
 export function recordAppError(params: {
