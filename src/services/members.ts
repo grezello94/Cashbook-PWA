@@ -95,6 +95,15 @@ function isMissingSentRequestsRpc(error: unknown): boolean {
   );
 }
 
+function isMissingCancelRequestRpc(error: unknown): boolean {
+  const message = readErrorMessage(error).toLowerCase();
+  return (
+    message.includes("could not find the function public.cancel_workspace_access_request") ||
+    message.includes("cancel_workspace_access_request") ||
+    message.includes("schema cache")
+  );
+}
+
 export async function listWorkspaceMembers(workspaceId: string): Promise<WorkspaceMemberDirectory[]> {
   const sb = requireSupabase();
   const { data, error } = await sb.rpc("list_workspace_members", {
@@ -309,9 +318,31 @@ export async function cancelWorkspaceAccessRequest(requestId: string): Promise<v
     _request_id: requestId
   });
 
-  if (error) {
+  if (!error) {
+    return;
+  }
+
+  if (!isMissingCancelRequestRpc(error)) {
     throw error;
   }
+
+  const { error: fallbackError } = await sb
+    .from("workspace_access_requests")
+    .update({
+      status: "cancelled",
+      reviewed_at: new Date().toISOString(),
+      note: "Cancelled by admin"
+    })
+    .eq("id", requestId)
+    .eq("status", "pending");
+
+  if (!fallbackError) {
+    return;
+  }
+
+  throw new Error(
+    "Cancel request is not enabled in this database yet. Run the latest Supabase migrations and reload the schema cache."
+  );
 }
 
 export async function listWorkspaceAccessRequestsSent(workspaceId: string): Promise<WorkspaceAccessRequestSent[]> {
